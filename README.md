@@ -1,2 +1,1 @@
-# qday-prize
-QDay Prize応募用
+# quantum-ecc
