@@ -18,20 +18,7 @@ from . import stdgates as g
 from . import quantum as qu
 from .quantum import QubitTarget, IGate, CompositeGate
 import numpy as np
-import time
 
-"""
-x3
-y3
-carry
-flag(xx=O, xx+Q=O)
-lambdaEccQuantum
-dy
-dx
-dx^-1 (+dx^2,dx^4...tmp)
-lambda * x3
-flag(xx=O)
-"""
 
 def qft_dagger(reg: QubitTarget) -> qu.IGate:
     qc = CompositeGate()
@@ -41,9 +28,9 @@ def qft_dagger(reg: QubitTarget) -> qu.IGate:
     for j in range(n):
         for m in range(j):
             qc <<= g.cp(-np.pi / float(2 ** (j - m)))(reg[m], reg[j])
-            #qc <<= qu.ctrl(reg[m]) @ g.p(-np.pi / float(2 ** (j - m)))(reg[j])
         qc <<= g.h(reg[j])
     return qc
+
 
 def x_inc_to_x(reg: QubitTarget) -> qu.IGate:
     qc = qu.CompositeGate()
