@@ -15,9 +15,11 @@
 from dotenv import load_dotenv
 import os
 from qiskit import transpile, QuantumCircuit
-from qiskit_ibm_runtime import QiskitRuntimeService
+from qiskit_ibm_runtime import QiskitRuntimeService, Options
 from qiskit_ibm_runtime import SamplerV2 as Sampler
 from typing import Tuple
+import time
+import main
 
 load_dotenv()
 
@@ -26,7 +28,6 @@ IBM_CRN = os.environ["IBM_CRN"]
 
 
 def get_backend(circuit: QuantumCircuit) -> Tuple[Sampler, QuantumCircuit]:
-    print(circuit.num_qubits)
     QiskitRuntimeService.save_account(
         token=API_KEY,
         instance=IBM_CRN,
@@ -44,7 +45,13 @@ def get_backend(circuit: QuantumCircuit) -> Tuple[Sampler, QuantumCircuit]:
             backend = bk
     if backend is None:
         raise RuntimeError("Not Found Backend")
+
+    start_time = time.perf_counter()
     print("Start Transpile", backend.name, backend.status().pending_jobs)
     t_qc = transpile(circuit, backend)
-    print("End Transpile")
+    tm = time.perf_counter() - start_time
+    print(f"End Transpile {tm:.3f}[s] size={t_qc.size()} depth={t_qc.depth()}")
     return Sampler(mode=backend), t_qc
+
+if __name__ == "__main__":
+    main.main(get_backend)

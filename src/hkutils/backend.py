@@ -442,5 +442,7 @@ class SparseStatevectorSimulator(BackendV2):
         return ResultJob(self, result)
 
 
-def get_backend(circuit: QuantumCircuit) -> Tuple[SparseStatevectorSimulator, QuantumCircuit]:
+def get_backend(
+    circuit: QuantumCircuit,
+) -> Tuple[SparseStatevectorSimulator, QuantumCircuit]:
     return (SparseStatevectorSimulator(), circuit)
