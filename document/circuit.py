@@ -168,6 +168,33 @@ def print_xy_add_P():
     print(qc)
 
 
+def print_xy1_add_xy2():
+    reg_x1 = QuantumRegister(1, name="qx1")
+    reg_y1 = QuantumRegister(1, name="qy1")
+    reg_x2 = QuantumRegister(1, name="qx2")
+    reg_y2 = QuantumRegister(1, name="qy2")
+    reg_ox = QuantumRegister(1, name="ox")
+    reg_oy = QuantumRegister(1, name="oy")
+    reg_anc = QuantumRegister(3, name="anc")
+    qc = QuantumCircuit(reg_x1, reg_y1, reg_x2, reg_y2, reg_ox, reg_oy, reg_anc)
+    qc.append(
+        QuantumCircuit(len(reg_ox) + len(reg_oy) + len(reg_anc), name="(x1,y1)+(x2,y2)")
+        .to_gate()
+        .control(len(reg_x1) + len(reg_y1) + len(reg_x2) + len(reg_y2)),
+        [*reg_x1, *reg_y1, *reg_x2, *reg_y2, *reg_ox, *reg_oy, *reg_anc],
+    )
+    qc.swap(reg_x1, reg_ox)
+    qc.swap(reg_y1, reg_oy)
+    qc.append(QuantumCircuit(len(reg_y2), name="-qy2").to_gate(), reg_y2)
+    qc.append(
+        QuantumCircuit(len(reg_ox) + len(reg_oy) + len(reg_anc), name="inv (x1,y1)+(x2,y2)")
+        .to_gate()
+        .control(len(reg_x1) + len(reg_y1) + len(reg_x2) + len(reg_y2)),
+        [*reg_x1, *reg_y1, *reg_x2, *reg_y2, *reg_ox, *reg_oy, *reg_anc],
+    )
+    qc.append(QuantumCircuit(len(reg_y2), name="-qy2").to_gate(), reg_y2)
+    print(qc)
+
 def print_xy_add_P_calc_lambda():
     reg_x = QuantumRegister(1, name="qx")
     reg_y = QuantumRegister(1, name="qy")
@@ -266,9 +293,105 @@ def print_xy_add_P_with_lambda():
     print(qc)
 
 
+def print_version_1():
+    reg_a = QuantumRegister(3, name="qa")
+    reg_b = QuantumRegister(3, name="qb")
+    reg_x = QuantumRegister(1, name="qx")
+    reg_y = QuantumRegister(1, name="qy")
+    reg_ext = QuantumRegister(3, name="anc")
+    qc = QuantumCircuit(reg_a, reg_b, reg_x, reg_y, reg_ext)
+    qc.append(
+        QuantumCircuit(len(reg_x) + len(reg_y) + len(reg_ext), name="+G^1")
+        .to_gate()
+        .control(1),
+        [reg_a[0], *reg_x, *reg_y, *reg_ext],
+    )
+    qc.append(
+        QuantumCircuit(len(reg_x) + len(reg_y) + len(reg_ext), name="+G^2")
+        .to_gate()
+        .control(1),
+        [reg_a[1], *reg_x, *reg_y, *reg_ext],
+    )
+    qc.append(
+        QuantumCircuit(len(reg_x) + len(reg_y) + len(reg_ext), name="+G^4")
+        .to_gate()
+        .control(1),
+        [reg_a[2], *reg_x, *reg_y, *reg_ext],
+    )
+    qc.append(
+        QuantumCircuit(len(reg_x) + len(reg_y) + len(reg_ext), name="+Q^1")
+        .to_gate()
+        .control(1),
+        [reg_b[0], *reg_x, *reg_y, *reg_ext],
+    )
+    qc.append(
+        QuantumCircuit(len(reg_x) + len(reg_y) + len(reg_ext), name="+Q^2")
+        .to_gate()
+        .control(1),
+        [reg_b[1], *reg_x, *reg_y, *reg_ext],
+    )
+    qc.append(
+        QuantumCircuit(len(reg_x) + len(reg_y) + len(reg_ext), name="+Q^4")
+        .to_gate()
+        .control(1),
+        [reg_b[2], *reg_x, *reg_y, *reg_ext],
+    )
+    print(qc)
+
+
+def print_version_2():
+    reg_a = QuantumRegister(3, name="qa")
+    reg_b = QuantumRegister(3, name="qb")
+    reg_x = QuantumRegister(1, name="qx")
+    reg_y = QuantumRegister(1, name="qy")
+    reg_x2 = QuantumRegister(1, name="qx2")
+    reg_y2 = QuantumRegister(1, name="qy2")
+    reg_x4 = QuantumRegister(1, name="qx4")
+    reg_y4 = QuantumRegister(1, name="qy4")
+    reg_ext = QuantumRegister(3, name="anc")
+    qc = QuantumCircuit(
+        reg_a, reg_b, reg_x, reg_y, reg_ext, reg_x2, reg_y2, reg_x4, reg_y4
+    )
+    qc.append(
+        QuantumCircuit(len(reg_x) + len(reg_y), name="a_0*G+b_0*Q")
+        .to_gate()
+        .control(2),
+        [reg_a[0], reg_b[0], *reg_x, *reg_y],
+    )
+    qc.append(
+        QuantumCircuit(len(reg_x2) + len(reg_y2), name="a_1*G^2+b_1*Q^2")
+        .to_gate()
+        .control(2),
+        [reg_a[1], reg_b[1], *reg_x2, *reg_y2],
+    )
+    qc.append(
+        QuantumCircuit(len(reg_x4) + len(reg_y4), name="a_2*G^4+b_2*Q^4")
+        .to_gate()
+        .control(2),
+        [reg_a[2], reg_b[2], *reg_x4, *reg_y4],
+    )
+
+    qc.append(
+        QuantumCircuit(len(reg_x) + len(reg_y) + len(reg_ext), name="+a_1*G^2+b_1*Q^2")
+        .to_gate()
+        .control(len(reg_x2) + len(reg_y2)),
+        [*reg_x2, *reg_y2, *reg_x, *reg_y, *reg_ext],
+    )
+    qc.append(
+        QuantumCircuit(len(reg_x) + len(reg_y) + len(reg_ext), name="+a_2*G^4+b_2*Q^4")
+        .to_gate()
+        .control(len(reg_x4) + len(reg_y4)),
+        [*reg_x4, *reg_y4, *reg_x, *reg_y, *reg_ext],
+    )
+    print(qc)
+
+
 # print_overview()
 # print_addr_mod()
 # print_addr_mod_const()
 # print_multi_mod()
-#print_xy_add_P_with_lambda()
-print_xy_add_P()
+# print_xy_add_P_with_lambda()
+# print_xy_add_P()
+# print_version_1()
+#print_version_2()
+print_xy1_add_xy2()

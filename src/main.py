@@ -13,18 +13,19 @@
 # limitations under the License.
 
 import numpy as np
-from qiskit import QuantumCircuit, transpile, QuantumRegister, ClassicalRegister
-from typing import Tuple, Dict
+from qiskit import QuantumCircuit, QuantumRegister, ClassicalRegister
+from qiskit.primitives import PrimitiveResult
+from typing import Tuple, Dict, List, Callable, Any
 import hkutils.quantum as qu
 from hkutils.ecc import EccQuantum
+import hkutils.backend as backend_mod
 import hkutils.stdgates as g
-import hkutils.backend as sim_mod
 import hkutils.ecc as ecc_mod
 import math
 import time
-import ibm_backend
 import json
 import sys
+from collections import Counter
 
 
 def get_ecc(bit_num: int) -> Tuple[EccQuantum, Tuple[int, int]]:
@@ -32,7 +33,9 @@ def get_ecc(bit_num: int) -> Tuple[EccQuantum, Tuple[int, int]]:
         data = json.load(f)  # JSONをPythonオブジェクトに変換
     for dt in data:
         if dt["bit_length"] == bit_num:
-            ecc = EccQuantum(0, 7, tuple(dt["generator_point"]), dt["prime"])
+            a = dt.get("a", 0)
+            b = dt.get("b", 7)
+            ecc = EccQuantum(a, b, tuple(dt["generator_point"]), dt["prime"])
             return ecc, tuple(dt["public_key"])
     raise ValueError(f"Invalid Bit Size {bit_num}")
 
@@ -54,6 +57,8 @@ def check_counts(counts: Dict[str, int], ecc: EccQuantum, Q: Tuple[int, int]):
         vals = key.split()
         a = int(vals[0], 2)
         b = int(vals[1], 2)
+        P = (int(vals[2], 2), int(vals[3], 2))
+        valid = ecc.is_valid(P)
         x = a * ecc.order / (1 << ecc.order.bit_length())
         y = b * ecc.order / (1 << ecc.order.bit_length())
         if (d := is_ok(math.floor(x), math.floor(y))) > 0:
@@ -67,14 +72,27 @@ def check_counts(counts: Dict[str, int], ecc: EccQuantum, Q: Tuple[int, int]):
         else:
             d = 0
         if d > 0:
-            print(f"*OK: <{key}>={cnt}, d={d}")
+            print(f"*OK: <{key}>={cnt}, {P}={valid} d={d}")
             result_d = d
         else:
-            print(f"-NG: <{key}>={cnt}")
+            print(f"-NG: <{key}>={cnt}, {P}={valid}")
     print(f"Success: d={result_d} count={ok_count}")
 
 
-if __name__ == "__main__":
+def get_primitive_count(result: PrimitiveResult, keys: List[str]):
+    register_bitstrings = [result[0].data[k].get_bitstrings() for k in keys]
+
+    # 各ショットを結合して1つの文字列にする
+    shots = []
+    for i in range(len(register_bitstrings[0])):  # 全ショット数
+        s = " ".join(register_bitstrings[j][i] for j in range(len(keys)))
+        shots.append(s)
+
+    # counts にまとめる
+    return dict(Counter(shots))
+
+
+def main(get_backend: Callable[[QuantumCircuit], Tuple[Any, QuantumCircuit]]):
     np.random.seed(None)
     bit_num = 4
     if len(sys.argv) > 1:
@@ -82,6 +100,7 @@ if __name__ == "__main__":
 
     # https://www.qdayprize.org/curves.txt
     ecc, Q = get_ecc(bit_num)
+    # ecc, Q = EccQuantum(0, 3, (1, 2), 7), (2, 2)
 
     print(f"bit_length={bit_num} prime={ecc.p} G={ecc.G} n={ecc.order} Q={Q}")
 
@@ -92,7 +111,10 @@ if __name__ == "__main__":
     x_qb = QuantumRegister(ecc.bit_num, name="qx")
     y_qb = QuantumRegister(ecc.bit_num, name="qy")
     ancilla = QuantumRegister(
-        ecc.bit_num * ((ecc.order - 2).bit_length() + 7) + 4, name="ancilla"
+        (len(a_qb) - 1) * ecc.bit_num * 2
+        + ecc.bit_num * ((ecc.order - 2).bit_length() + 8)
+        + 4,
+        name="ancilla",
     )
     a_c = ClassicalRegister(len(a_qb), name="a")
     b_c = ClassicalRegister(len(b_qb), name="b")
@@ -103,12 +125,8 @@ if __name__ == "__main__":
     qc <<= g.h(a_qb)
     qc <<= g.h(b_qb)
 
-    qc <<= ecc.x_mul_P_add_yy_to_yy(
-        a_qb, ecc.G, qu.get_qubits(x_qb) + qu.get_qubits(y_qb), ancilla
-    )
-    qc <<= ecc.x_mul_P_add_yy_to_yy(
-        b_qb, Q, qu.get_qubits(x_qb) + qu.get_qubits(y_qb), ancilla
-    )
+    qc <<= ecc.x_mul_P_add_y_mul_Q_to_zz(a_qb, ecc.G, b_qb, Q, [*x_qb, *y_qb], ancilla)
+
     qc.barrier()
     qc.measure(x_qb, x_c)
     qc.measure(y_qb, y_c)
@@ -122,10 +140,18 @@ if __name__ == "__main__":
     print(f"  qubit_size={qc.circuit.num_qubits} gate_count={len(qc.circuit.data)}")
 
     # 実行する
-    # backend, t_qc = ibm_backend.get_backend(circuit)
-    backend, t_qc = sim_mod.get_backend(circuit)
+    backend, t_qc = get_backend(circuit)
     jobs = backend.run([t_qc], shots=100)
     results = jobs.result()
-    counts = results.get_counts()
+    if isinstance(results, PrimitiveResult):
+        counts = get_primitive_count(
+            results, [reg.name for reg in reversed(qc.circuit.cregs)]
+        )
+    else:
+        counts = results.get_counts()
     # キー順に表示
     check_counts(counts, ecc, Q)  # type:ignore
+
+
+if __name__ == "__main__":
+    main(backend_mod.get_backend)

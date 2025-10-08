@@ -1,5 +1,13 @@
 [
   {
+    "bit_length": 3,
+    "prime": 5,
+    "a": 2,
+    "b": 1,
+    "generator_point": [0, 1],
+    "public_key": [3, 3]
+  },
+  {
     "bit_length": 4,
     "prime": 13,
     "curve_order": 7,

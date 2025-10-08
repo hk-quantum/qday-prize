@@ -18,6 +18,7 @@ from . import stdgates as g
 from . import quantum as qu
 from .quantum import QubitTarget, IGate, CompositeGate
 import numpy as np
+import sys
 
 
 def qft_dagger(reg: QubitTarget) -> qu.IGate:
@@ -82,6 +83,19 @@ def xc_add_a_mod_n_to_xc(xc: QubitTarget, a: int, n: int) -> IGate:
     return qc
 
 
+def minus_xc_mod_n_to_xc(xc: QubitTarget, n: int) -> IGate:
+    qc = CompositeGate()
+    bit_num = n.bit_length()
+    if len(xc) < bit_num + 1:
+        raise ValueError("x is too small")
+    qc <<= g.x(xc)
+    qc <<= x_inc_to_x(xc)
+    qc <<= qu.ctrl(xc[bit_num]) @ x_add_a_to_x(xc[:bit_num], n)
+    qc <<= qu.neg_ctrl(*xc[:bit_num]) @ g.x(xc[bit_num])
+    qc <<= g.x(xc[bit_num])
+    return qc
+
+
 def x_add_zc_mod_n_to_zc(x: QubitTarget, zc: QubitTarget, n: int) -> IGate:
     bit_num = n.bit_length()
     if len(zc) < bit_num + 1:
@@ -124,6 +138,15 @@ def x_mul_y_mod_n_to_zc(
             qc <<= qu.ctrl(x[i], y[j]) @ xc_add_a_mod_n_to_xc(
                 zc[: bit_num + 1], ((1 << i) * (1 << j)) % n, n
             )
+    return qc
+
+
+def cx_mul_2_mod_n_to_xc(xc: QubitTarget, n: int) -> IGate:
+    qc = CompositeGate()
+    bit_num = n.bit_length()
+    if len(xc) < bit_num + 1:
+        raise ValueError("x is too small")
+
     return qc
 
 
@@ -298,6 +321,12 @@ class EccQuantum:
         y3 = (m * (P[0] - x3) - P[1]) % self.p
         return (x3, y3)
 
+    def is_valid(self, P: Tuple[int, int]) -> bool:
+        if P == (0, 0):
+            return True
+        x, y = P
+        return (y * y - (x * x * x + self.a * x + self.b)) % self.p == 0
+
     def calc_xx_add_Q_lambda_dx_inv_to_z0(
         self, xx: QubitTarget, Q: Tuple[int, int], z: QubitTarget, carry: QubitTarget
     ) -> IGate:
@@ -320,7 +349,7 @@ class EccQuantum:
         self, xx: QubitTarget, Q: Tuple[int, int], yc: QubitTarget
     ) -> IGate:
         """
-        lambdaの分母 y2-y1
+        lambdaの分子 y2-y1
         """
         qc = CompositeGate()
         qc <<= qu.ctrl(xx[self.bit_num : self.bit_num * 2]) @ g.x(yc[: self.bit_num])
@@ -341,6 +370,121 @@ class EccQuantum:
         qc <<= ctrl_with_state(
             xx[: self.bit_num * 2], ((self.p - Q[1]) << self.bit_num) | Q[0]
         ) @ g.x(y[1])
+        return qc
+
+    def calc_xx_add_yy_to_flag_lambda(
+        self,
+        xx: QubitTarget,
+        yy: QubitTarget,
+        flag: QubitTarget,
+        lam: QubitTarget,
+        ext: QubitTarget,
+    ) -> IGate:
+        """
+        flag[0] = xx=Oフラグ
+        flag[1] = yy=Oフラグ
+        flag[2] = xx+yy=Oフラグ
+        lam:
+        ext:
+          dx:
+          dy:
+          same: xx==yy フラグ
+          carry: 1bit
+          dx^-1:
+          ancilla
+        """
+        qc = CompositeGate()
+        # xx==O の無限遠点フラグ
+        qc <<= qu.neg_ctrl(*xx[: self.bit_num * 2]) @ g.x(flag[0])
+        # xy==O の無限遠点フラグ
+        qc <<= qu.neg_ctrl(*yy[: self.bit_num * 2]) @ g.x(flag[1])
+
+        # dx,dyの計算
+        qc <<= qu.ctrl(xx[: self.bit_num * 2]) @ g.x(ext[: self.bit_num * 2])
+        # dx
+        qc <<= qu.inv @ x_add_zc_mod_n_to_zc(
+            yy[: self.bit_num], ext[: self.bit_num] + ext[self.bit_num * 2 :], self.p
+        )
+        # dy
+        qc <<= qu.inv @ x_add_zc_mod_n_to_zc(
+            yy[self.bit_num : self.bit_num * 2],
+            ext[self.bit_num :],
+            self.p,
+        )
+
+        # x+Q==O の無限遠点フラグ(途中計算は戻す)
+        # xx.y + yy.y = p の判定
+        qc <<= qu.ctrl(xx[self.bit_num : self.bit_num * 2]) @ g.x(
+            ext[self.bit_num * 2 : self.bit_num * 3]
+        )
+        qc <<= x_add_z_to_z(
+            yy[self.bit_num : self.bit_num * 2],
+            ext[self.bit_num * 2 : self.bit_num * 3],
+        )
+        qc <<= qu.inv @ x_add_a_to_x(ext[self.bit_num * 2 : self.bit_num * 3], self.p)
+        # 判定
+        qc <<= qu.neg_ctrl(
+            *ext[: self.bit_num], *ext[self.bit_num * 2 : self.bit_num * 3]
+        ) @ g.x(flag[2])
+        # 戻し
+        qc <<= x_add_a_to_x(ext[self.bit_num * 2 : self.bit_num * 3], self.p)
+        qc <<= qu.inv @ x_add_z_to_z(
+            yy[self.bit_num : self.bit_num * 2],
+            ext[self.bit_num * 2 : self.bit_num * 3],
+        )
+        qc <<= (
+            qu.inv
+            @ qu.ctrl(xx[self.bit_num : self.bit_num * 2])
+            @ g.x(ext[self.bit_num * 2 : self.bit_num * 3])
+        )
+
+        # 同一点の計算 dx=2*y1,dy=3x^2+a
+        qc <<= qu.neg_ctrl(*ext[: self.bit_num * 2]) @ g.x(ext[self.bit_num * 2])
+        # dx = 2*y1
+        qc <<= qu.ctrl(ext[self.bit_num * 2]) @ x_mul_a_mod_n_to_zc(
+            xx[self.bit_num : self.bit_num * 2],
+            2,
+            ext[: self.bit_num] + ext[self.bit_num * 2 + 1 :],
+            self.p,
+        )
+        # dy=3*x^2+a
+        qc <<= x_pow_2_mod_n_to_zc(
+            xx[: self.bit_num],
+            self.p,
+            ext[self.bit_num * 2 + 1 :],
+        )
+        qc <<= qu.ctrl(ext[self.bit_num * 2]) @ x_mul_a_mod_n_to_zc(
+            ext[self.bit_num * 2 + 1 : self.bit_num * 3 + 1],
+            3,
+            ext[self.bit_num : self.bit_num * 2] + ext[self.bit_num * 3 + 1 :],
+            self.p,
+        )
+        if self.a > 0:
+            qc <<= qu.ctrl(ext[self.bit_num * 2]) @ xc_add_a_mod_n_to_xc(
+                ext[self.bit_num : self.bit_num * 2] + ext[self.bit_num * 3 + 1 :],
+                self.a,
+                self.p,
+            )
+        # 戻し
+        qc <<= qu.inv @ x_pow_2_mod_n_to_zc(
+            xx[: self.bit_num],
+            self.p,
+            ext[self.bit_num * 2 + 1 :],
+        )
+
+        # dx^-1の計算
+        qc <<= x_pow_a_mod_n_to_z0(
+            ext[: self.bit_num], self.p - 2, self.p, ext[self.bit_num * 2 + 2 :]
+        )
+
+        # lambdaの計算
+        qc <<= x_mul_y_mod_n_to_zc(
+            ext[self.bit_num * 2 + 2 : self.bit_num * 3 + 2],
+            ext[self.bit_num : self.bit_num * 2],
+            lam + ext[self.bit_num * 2 + 1 : self.bit_num * 2 + 2],
+            self.p,
+        )
+
         return qc
 
     def calc_xx_add_Q_lambda_to_z0(
@@ -428,6 +572,60 @@ class EccQuantum:
 
         return qc
 
+    def xx_add_yy_with_lambda_to_zz(
+        self,
+        xx: QubitTarget,
+        yy: QubitTarget,
+        lam: QubitTarget,
+        zz: QubitTarget,
+        ancilla: QubitTarget,
+    ) -> IGate:
+        qc = CompositeGate()
+
+        # x3の計算
+        # lambda^2
+        qc <<= x_pow_2_mod_n_to_zc(lam, self.p, zz + ancilla)
+        # -x1
+        qc <<= qu.inv @ x_add_zc_mod_n_to_zc(yy[: self.bit_num], zz, self.p)
+        # -x2
+        qc <<= qu.inv @ x_add_zc_mod_n_to_zc(xx[: self.bit_num], zz, self.p)
+
+        # y3の計算
+        # lambda * x1
+        qc <<= x_mul_y_mod_n_to_zc(
+            lam, xx[: self.bit_num], zz[self.bit_num :] + ancilla, self.p
+        )
+        # lambda * x3(戻し対象)
+        qc <<= x_mul_y_mod_n_to_zc(
+            lam,
+            zz[: self.bit_num],
+            ancilla,
+            self.p,
+        )
+
+        # -lambda * x3
+        qc <<= qu.inv @ x_add_zc_mod_n_to_zc(
+            ancilla[: self.bit_num],
+            zz[self.bit_num : self.bit_num * 2] + ancilla[self.bit_num :],
+            self.p,
+        )
+        # -y1
+        qc <<= qu.inv @ x_add_zc_mod_n_to_zc(
+            xx[self.bit_num : self.bit_num * 2],
+            zz[self.bit_num : self.bit_num * 2] + ancilla[self.bit_num :],
+            self.p,
+        )
+
+        # ここから戻し
+        qc <<= qu.inv @ x_mul_y_mod_n_to_zc(
+            lam,
+            zz[: self.bit_num],
+            ancilla,
+            self.p,
+        )
+
+        return qc
+
     def xx_add_Q_to_zz(
         self, xx: QubitTarget, Q: Tuple[int, int], zz: QubitTarget, ancilla: QubitTarget
     ) -> IGate:
@@ -456,6 +654,46 @@ class EccQuantum:
         )
         return qc
 
+    def xx_add_yy_to_zz(
+        self, xx: QubitTarget, yy: QubitTarget, zz: QubitTarget, ancilla: QubitTarget
+    ) -> IGate:
+        if len(xx) < self.bit_num * 2:
+            raise ValueError("x is too small")
+        qc = CompositeGate()
+        # 最後の計算用
+        last_ancilla = ancilla[: self.bit_num + 1]
+        # フラグ 3bit
+        flag = ancilla[self.bit_num + 1 : self.bit_num + 4]
+        # lambda
+        lam = ancilla[self.bit_num + 4 : self.bit_num * 2 + 4]
+        # ext
+        ext = ancilla[self.bit_num * 2 + 4 :]
+
+        qc <<= self.calc_xx_add_yy_to_flag_lambda(xx, yy, flag, lam, ext)
+
+        # 最終座標
+        qc <<= qu.neg_ctrl(*flag) @ self.xx_add_yy_with_lambda_to_zz(
+            xx, yy, lam, qu.get_qubits(zz), last_ancilla
+        )
+
+        # xx=Oの処理
+        qc <<= (
+            qu.ctrl(flag[0])
+            @ qu.ctrl(yy[: self.bit_num * 2])
+            @ g.x(zz[: self.bit_num * 2])
+        )
+        # yy=Oの処理
+        qc <<= (
+            qu.ctrl(flag[1])
+            @ qu.ctrl(xx[: self.bit_num * 2])
+            @ g.x(zz[: self.bit_num * 2])
+        )
+
+        # 戻し
+        qc <<= qu.inv @ self.calc_xx_add_yy_to_flag_lambda(xx, yy, flag, lam, ext)
+
+        return qc
+
     def xx_add_Q_to_xx(
         self, xx: QubitTarget, Q: Tuple[int, int], ancilla: QubitTarget
     ) -> IGate:
@@ -474,6 +712,34 @@ class EccQuantum:
         )
         return qc
 
+    def xx_add_yy_to_yy(
+        self, xx: QubitTarget, yy: QubitTarget, ancilla: QubitTarget
+    ) -> IGate:
+        if len(xx) < self.bit_num * 2:
+            raise ValueError("x is too small")
+        qc = CompositeGate()
+        qc <<= self.xx_add_yy_to_zz(
+            xx, yy, ancilla[: self.bit_num * 2], ancilla[self.bit_num * 2 :]
+        )
+        qc <<= g.swap(yy, ancilla[: self.bit_num * 2])
+        # xx.yをマイナスにする
+        qc <<= minus_xc_mod_n_to_xc(
+            xx[self.bit_num : self.bit_num * 2]
+            + ancilla[self.bit_num * 2 : self.bit_num * 2 + 1],
+            self.p,
+        )
+        # xx.y -=n, ~xx.y + 1
+        qc <<= qu.inv @ self.xx_add_yy_to_zz(
+            xx, yy, ancilla[: self.bit_num * 2], ancilla[self.bit_num * 2 :]
+        )
+
+        # -xx.y の戻し
+        qc <<= qu.inv @ minus_xc_mod_n_to_xc(
+            xx[self.bit_num : self.bit_num * 2] + ancilla[:1], self.p
+        )
+
+        return qc
+
     def x_mul_P_add_yy_to_yy(
         self, x: QubitTarget, P: Tuple[int, int], yy: QubitTarget, ancilla: QubitTarget
     ) -> IGate:
@@ -485,25 +751,76 @@ class EccQuantum:
             pp = self.add(pp, pp)
         return qc
 
-    def debug_init(self, x: QubitTarget, y: QubitTarget, ancilla: QubitTarget):
+    def _set_xy_PQ_to_zz(
+        self, xy: QubitTarget, P: Tuple[int, int], Q: Tuple[int, int], zz: QubitTarget
+    ) -> IGate:
+        """
+        xy=2bit
+        """
         qc = CompositeGate()
-        # Initialize the debug circuit
-        qc <<= g.h(ancilla[: self.bit_num])
-        for i in range(1, self.order):
-            pos = self.get_nG(i)
-            print("init", i, pos)
-            mod = None
-            for j in reversed(range(self.bit_num)):
-                if i & (1 << j):
-                    if mod is None:
-                        mod = qu.ctrl(ancilla[j])
-                    else:
-                        mod = mod @ qu.ctrl(ancilla[j])
-                else:
-                    if mod is None:
-                        mod = qu.neg_ctrl(ancilla[j])
-                    else:
-                        mod = mod @ qu.neg_ctrl(ancilla[j])
-            qc <<= mod @ x_add_a_to_x(x, pos[0])  # type: ignore
-            qc <<= mod @ x_add_a_to_x(y, pos[1])  # type: ignore
+        R = self.add(P, Q)
+        # 0000
+        # 0010 |01>
+        # 0100 |10>
+        # 0110 |01> |10>
+        # 1000 |11>
+        # 1010 |11> |01>
+        # 1100 |11> |10>
+        # 1110 |11> |01> |10>
+        for i in range(self.bit_num * 2):
+            iy, ix = divmod(i, self.bit_num)
+            bit = 1 << ix
+            qb = zz[i]
+            if P[iy] & bit:  # |01>
+                qc <<= qu.neg_ctrl(xy[1]) @ qu.ctrl(xy[0]) @ g.x(qb)
+            if Q[iy] & bit:  # |10>
+                qc <<= qu.ctrl(xy[1]) @ qu.neg_ctrl(xy[0]) @ g.x(qb)
+            if R[iy] & bit:
+                qc <<= qu.ctrl(*xy) @ g.x(qb)
         return qc
+
+    def x_mul_P_add_y_mul_Q_to_zz(
+        self,
+        x: QubitTarget,
+        P: Tuple[int, int],
+        y: QubitTarget,
+        Q: Tuple[int, int],
+        zz: QubitTarget,
+        ancilla: QubitTarget,
+    ) -> IGate:
+        qc = CompositeGate()
+        qc <<= self._set_xy_PQ_to_zz(x[0:1] + y[0:1], P, Q, zz)
+        tmpqc = CompositeGate()
+        for i in range(1, len(x)):
+            P = self.add(P, P)
+            Q = self.add(Q, Q)
+            # print(i, P, Q)
+            tmpqc <<= self._set_xy_PQ_to_zz(
+                x[i : i + 1] + y[i : i + 1],
+                P,
+                Q,
+                ancilla[(i - 1) * self.bit_num * 2 : i * self.bit_num * 2],
+            )
+        qc <<= tmpqc
+        ext = ancilla[(len(x) - 1) * self.bit_num * 2 :]
+        for i in range(1, len(x)):
+            print(f"({i}/{len(x)})")
+            qc <<= self.xx_add_yy_to_yy(
+                ancilla[(i - 1) * self.bit_num * 2 : i * self.bit_num * 2], zz, ext
+            )
+        qc <<= qu.inv @ tmpqc
+        print(f"({len(x)}/{len(x)})")
+        return qc
+
+if __name__ == "__main__":
+    a = int(sys.argv[1])
+    b = int(sys.argv[2])
+    Gx = int(sys.argv[3])
+    Gy = int(sys.argv[4])
+    p = int(sys.argv[5])
+    ecc = EccQuantum(a, b, (Gx, Gy), p)
+    print(f"a={a}, b={b}, G=({Gx},{Gy}), p={p}, order={ecc.order}")
+    n = ecc.order
+    for i in range(n + 1):
+        P = ecc.get_nG(i)
+        print(f"{i}G = {P}, valid={ecc.is_valid(P)}")
