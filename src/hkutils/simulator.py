@@ -18,6 +18,7 @@ from numpy.typing import NDArray
 import time
 import math
 
+
 def is_zero(val: np.complex128) -> bool:
     return np.abs(val) < 1e-8
 
@@ -75,7 +76,6 @@ def _x_gate(
         state[idx, iy] ^= bit
 
     return qstate
-
 
     # ターゲットビット位置
     iy, ix = divmod(target_regs[0], 32)
@@ -336,7 +336,7 @@ class QuantumSimulator:
     _max_qubits = 0
 
     def __init__(self, bit_num):
-        #self._max_qubits = bit_num
+        # self._max_qubits = bit_num
         num = math.ceil(bit_num / 32)
         self._state = np.array(
             [(np.zeros([num], dtype=np.uint32), 1 + 0j)],
@@ -439,6 +439,17 @@ class QuantumSimulator:
                 self._state["vec"][i],
             )
         print("Qubit Num", self._max_qubits, "StateCount", len(self._state))
+
+    def reset(self, target: int):
+        val = self.measure(target)
+        if val:
+            self.execute(
+                "x",
+                np.array([[0j, 1 + 0j], [1 + 0j, 0j]], dtype=np.complex128),
+                [target],
+                [],
+                [],
+            )
 
     def reset_measure(self):
         self._measure_mask = 0

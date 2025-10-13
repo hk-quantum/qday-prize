@@ -111,9 +111,8 @@ def main(get_backend: Callable[[QuantumCircuit], Tuple[Any, QuantumCircuit]]):
     x_qb = QuantumRegister(ecc.bit_num, name="qx")
     y_qb = QuantumRegister(ecc.bit_num, name="qy")
     ancilla = QuantumRegister(
-        (len(a_qb) - 1) * ecc.bit_num * 2
-        + ecc.bit_num * ((ecc.order - 2).bit_length() + 8)
-        + 4,
+        (ecc.get_add_ancilla_size() + ecc.bit_num * 2) * (ecc.order.bit_length() - 1)
+        + ecc.bit_num * 2 * ecc.order.bit_length(),
         name="ancilla",
     )
     a_c = ClassicalRegister(len(a_qb), name="a")
@@ -125,7 +124,7 @@ def main(get_backend: Callable[[QuantumCircuit], Tuple[Any, QuantumCircuit]]):
     qc <<= g.h(a_qb)
     qc <<= g.h(b_qb)
 
-    qc <<= ecc.x_mul_P_add_y_mul_Q_to_zz(a_qb, ecc.G, b_qb, Q, [*x_qb, *y_qb], ancilla)
+    qc <<= ecc.x_mul_P_add_y_mul_Q_to_zz_v2(a_qb, ecc.G, b_qb, Q, [*x_qb, *y_qb], ancilla)
 
     qc.barrier()
     qc.measure(x_qb, x_c)

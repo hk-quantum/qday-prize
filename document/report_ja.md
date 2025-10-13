@@ -1,6 +1,23 @@
 # 量子回路の詳細
 
 
+## 実装した量子回路
+
+```math
+\ket{x} \mapsto \ket{x+1} \\
+\ket{x} \mapsto \ket{x+a} \\
+\ket{x, 0} \mapsto \ket{(x+a) \mod N, 0} \\
+\ket{x} \ket{0} \mapsto \ket{x} \ket{(-x) \mod N, 0} \\
+\ket{x} \ket{0, 0} \mapsto \ket{x} \ket{(x^2) \mod N, 0} \\
+\ket{x} \ket{y, 0} \mapsto \ket{x} \ket{(x^2+y) \mod N, 0} \\
+\ket{x} \ket{y, 0} \mapsto \ket{x} \ket{(a \times x^2+y) \mod N, 0} \\
+\ket{x} \ket{0, 0} \mapsto \ket{x} \ket{(x^3) \mod N, 0} \\
+\ket{x} \ket{y, 0} \mapsto \ket{x} \ket{(x^3+y) \mod N, 0} \\
+\ket{x} \ket{0, 0} \mapsto \ket{x} \ket{(x \times a) \mod N, 0} \\
+\ket{x} \ket{y, 0} \mapsto \ket{x} \ket{(x \times a + y) \mod N, 0} \\
+\ket{x} \ket{y} \ket{z, 0} \mapsto \ket{x} \ket{y} \ket{(z \times y + z) \mod N, 0} \\
+\ket{x}
+```
 
 ## oracleの詳細
 
