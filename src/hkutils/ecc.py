@@ -21,90 +21,15 @@ import numpy as np
 import sys
 
 
-def get_pow_count(divs: List[Tuple[int, int, int]]) -> int:
-    cnt = 0
-    for dt in divs:
-        cnt += 1
-        if dt[2] > 0:
-            cnt += 1
-    return cnt
-
-
-def calc_pow_divs(target: int):
-    divs = []
-    v = target
-    while v >= 3:
-        d, m = divmod(v, 3)
-        v = d
-        divs.append((d, 3, m))
-    if v == 2:
-        divs.append((1, 2, 0))
-    elif v == 0:
-        divs.append((1, 3, 0))
-    cnt = 0
-    if any(dt[2] == 2 for dt in divs) and v != 2:
-        divs.append((1, 2, 0))
-    return divs
-
-
-def calc_pow_register(target: int):
-    result = []
-    sublist = calc_pow_divs(target)
-    while len(sublist) > 0:
-        diff = 0
-        resolve = []
-        next = sublist
-        for i in range(len(sublist) - 1):
-            sub = sublist[i:]
-            cnt = get_pow_count(sub)
-            val = sub[0][0] * sub[0][1] + sub[0][2]
-            sub2 = [(val // 2, 2, 1), *calc_pow_divs(val // 2)]
-            if any(dt[2] == 2 for dt in sub2) and not (any(dt[1] == 2 for dt in sub2)):
-                sub2.append((1, 2, 0))
-            cnt2 = get_pow_count(sub2)
-            if cnt2 < cnt:
-                if cnt - cnt2 > diff:
-                    diff = cnt - cnt2
-                    resolve = sublist[:i]
-                    next = sub2
-        if diff > 0:
-            # 入れ替え
-            result = [*result, *resolve]
-            sublist = next
-        else:
-            result = [*result, *sublist]
-            break
-    return result
-
-
-"""
-(x1,y1)+(x2,y2)=(x3,y3)
-lambda=(y2-y1)/(x2-x1) (x1!=x2)
-lambda=(3*x1^2+a)/(2*y1) (x1==x2,y1!=0)
-x3=lambda^2-x1-x2
-y3=lambda*(x1-x3)-y1
-
-手順
-f1=(x1==0 && y1==0) (x1,y1)=O
-f2=(x2==0 && y2==0) (x2,y2)=O
-negctrl(f2) x3=-x2
-x2-=x1 (mod p)
-a1=y1+y2-p
-y2-=y1 (mod p)
-f3=(x2==0 && a1==0) 結果 O
-f4=(x2==0 && y2==0) 2倍
-ctrl(f4) y2= (3*x1^2) + a (mod p)
-ctrl(f4) x2= 2*y1 (mod p)
-a2=x2^-1 (mod p)
-lambda=y2*a2 (mod p)
-negctrl(f1, f2) x3 += lambda*2 - x1 (mod p)
-x1 -= x3 (mod p)
-negctrl(f1, f2) y3 = lambda * x1 - y1 (mod p)
-ctrl(f1) x3=x2
-ctrl(f1) y3=y2
-ctrl(f2) x3=x1
-ctrl(f2) y3=y1
-"""
+def get_pow2_route(target: int) -> List[Tuple[int, int]]:
+    route = []
+    bit_num = target.bit_length()
+    for i in range(bit_num - 1):
+        route.append((i, i))
+    for i in range(bit_num - 1):
+        if target & (1 << i):
+            route.append((i, len(route)))
+    return route
 
 
 def minus_x_to_y_mod_n(x: QubitTarget, y: QubitTarget, n: int) -> qu.IGate:
@@ -131,13 +56,22 @@ def x_pow_2_mod_n_to_zc(x: QubitTarget, n: int, zc: QubitTarget) -> IGate:
     qc = qu.CompositeGate()
     if len(zc) < bit_num + 1:
         raise ValueError("zのビット数が足りません")
-    # 1の位はそのまま設定
-    qc <<= qu.ctrl(x[0]) @ g.x(zc[0])
+    # n未満であれば x_i^2 はそのまま設定できる
+    cnt = 0
+    total = 0
+    for i in range(bit_num):
+        total |= 1 << (i * 2)
+        if total >= n:
+            break
+        cnt += 1
+    for i in range(cnt):
+        # そのまま設定
+        qc <<= qu.ctrl(x[i]) @ g.x(zc[i * 2])
     for i in range(bit_num):
         for j in range(i, bit_num):
-            if i == 0 and j == 0:
-                continue
             if i == j:
+                if i < cnt:
+                    continue
                 qc <<= qu.ctrl(x[i]) @ xc_add_a_mod_n_to_xc(
                     zc[: bit_num + 1], ((1 << i) * (1 << j)) % n, n
                 )
@@ -168,6 +102,31 @@ def x_pow_2_add_zc_to_zc(x: QubitTarget, zc: QubitTarget, n: int) -> IGate:
                 )
     return qc
 
+def x_pow_2_mul_a_mod_n_to_zc(
+    x: QubitTarget, a: int, zc: QubitTarget, n: int
+) -> IGate:
+    """
+    |x>|y>|z> -> |x>|y>|(z + a*x^2) mod n>
+    """
+    qc = CompositeGate()
+    bit_num = n.bit_length()
+    qc = qu.CompositeGate()
+    if len(zc) < bit_num + 1:
+        raise ValueError("zのビット数が足りません")
+    qc <<= qu.ctrl(x[0]) @ a_to_x(a, zc[:bit_num])
+    for i in range(bit_num):
+        for j in range(i, bit_num):
+            if i == j:
+                if i == 0:
+                    continue
+                qc <<= qu.ctrl(x[i]) @ xc_add_a_mod_n_to_xc(
+                    zc[: bit_num + 1], (a * (1 << i) * (1 << j)) % n, n
+                )
+            else:
+                qc <<= qu.ctrl(x[i], x[j]) @ xc_add_a_mod_n_to_xc(
+                    zc[: bit_num + 1], (2 * a * (1 << i) * (1 << j)) % n, n
+                )
+    return qc
 
 def x_pow_2_mul_a_add_zc_mod_n_to_zc(
     x: QubitTarget, a: int, zc: QubitTarget, n: int
@@ -309,34 +268,21 @@ def x_pow_a_mod_n_to_z_with_divs(
     n: int,
     z: QubitTarget,
     anc: QubitTarget,
-    divs: List[Tuple[int, int, int]],
+    divs: List[Tuple[int, int]],
 ) -> IGate:
     bit_num = n.bit_length()
     qc = CompositeGate()
-    ix = 0
-    reg_map = {1: x, a: z}
-    for dt in reversed(divs):
-        key = dt[0] * dt[1]
-        if key not in reg_map:
-            reg_map[key] = anc[ix : ix + bit_num]
-            ix += bit_num
-        if dt[2] > 0:
-            key += dt[2]
-            if key not in reg_map:
-                reg_map[key] = anc[ix : ix + bit_num]
-                ix += bit_num
-    carry = anc[ix : ix + 1]
-    for dt in reversed(divs):
-        reg = reg_map[dt[0]]
-        nxt = reg_map[dt[0] * dt[1]]
-        if dt[1] == 2:
-            qc <<= x_pow_2_mod_n_to_zc(reg, n, nxt + carry)
-        elif dt[1] == 3:
-            qc <<= x_pow_3_mod_n_to_zc(reg, n, nxt + carry)
-        if dt[2] > 0:
-            qc <<= x_mul_y_mod_n_to_zc(
-                nxt, reg_map[dt[2]], reg_map[dt[0] * dt[1] + dt[2]] + carry, n
-            )
+    regs = [x]
+    for i in range(1, len(divs)):
+        regs.append(anc[i * bit_num : (i + 1) * bit_num])
+    regs.append(z)
+    carry = anc[len(divs) * bit_num : len(divs) * bit_num + 1]
+    for i in range(len(divs)):
+        dt = divs[i]
+        if dt[0] == dt[1]:
+            qc <<= x_pow_2_mod_n_to_zc(regs[dt[0]], n, regs[i + 1] + carry)
+        else:
+            qc <<= x_mul_y_mod_n_to_zc(regs[dt[0]], regs[dt[1]], regs[i + 1] + carry, n)
     return qc
 
 
@@ -372,9 +318,26 @@ def a_to_x(a: int, x: QubitTarget) -> IGate:
 def x_add_a_to_x(x: QubitTarget, a: int) -> IGate:
     qc = CompositeGate()
     bit_num = a.bit_length()
-    for i in reversed(range(bit_num)):
-        if (a >> i) & 1:
-            qc <<= x_inc_to_x(x[i:])
+    # 量子ゲート数の見込みを計算
+    num = len(x)
+    pl_num = 0
+    mi_num = 0
+    b = (1 << len(x)) - a
+    for i in range(len(x)):
+        if a & (1 << i):
+            pl_num += num
+        if b & (1 << i):
+            mi_num += num
+        num -= 1
+    if pl_num > mi_num:
+        # 引き算の方がビット数が少ない
+        for i in range(len(x)):
+            if (b >> i) & 1:
+                qc <<= qu.inv @ x_inc_to_x(x[i:])
+    else:
+        for i in reversed(range(bit_num)):
+            if (a >> i) & 1:
+                qc <<= x_inc_to_x(x[i:])
     return qc
 
 
@@ -430,8 +393,8 @@ def minus_xc_mod_n_to_xc(xc: QubitTarget, n: int) -> IGate:
     bit_num = n.bit_length()
     if len(xc) < bit_num + 1:
         raise ValueError("x is too small")
-    qc <<= g.x(xc)
-    qc <<= x_inc_to_x(xc)
+    qc <<= g.x(xc[: bit_num + 1])
+    qc <<= x_inc_to_x(xc[: bit_num + 1])
     qc <<= qu.ctrl(xc[bit_num]) @ x_add_a_to_x(xc[:bit_num], n)
     qc <<= qu.neg_ctrl(*xc[:bit_num]) @ g.x(xc[bit_num])
     qc <<= g.x(xc[bit_num])
@@ -529,7 +492,7 @@ class EccQuantum:
     order: int
     bit_num: int
     inv_size: int
-    inv_list: List[Tuple[int, int, int]]
+    inv_list: List[Tuple[int, int]]
 
     def __init__(self, a: int, b: int, G: Tuple[int, int], p: int):
         self.a = a
@@ -542,8 +505,8 @@ class EccQuantum:
         while P != (0, 0):
             P = self.add(P, self.G)
             self.order += 1
-        self.inv_list = calc_pow_register(self.p - 2)
-        self.inv_size = get_pow_count(self.inv_list)
+        self.inv_list = get_pow2_route(self.p - 2)
+        self.inv_size = len(self.inv_list) + 1
 
     def get_nG(self, n: int) -> Tuple[int, int]:
         if n == 0:
@@ -1005,12 +968,14 @@ class EccQuantum:
         qc <<= qu.neg_ctrl(*x2, *a1) @ g.x(f3)
         # f4=(x2==0 && y2==0) 2倍
         qc <<= qu.neg_ctrl(*x2, *y2) @ g.x(f4)
-        # ctrl(f3) x3 += x1
+        # ctrl(f3) x3 = -x1 (inv)
         qc <<= qu.ctrl(f3) @ qu.inv @ minus_x_to_y_mod_n(x1, x3, self.p)
         # ctrl(f4) y2= (3*x1^2) + a (mod p)
         if self.a > 0:
             qc <<= qu.ctrl(f4) @ a_to_x(self.a, y2)
-        qc <<= qu.ctrl(f4) @ x_pow_2_mul_a_add_zc_mod_n_to_zc(x1, 3, y2 + carry, self.p)
+            qc <<= qu.ctrl(f4) @ x_pow_2_mul_a_add_zc_mod_n_to_zc(x1, 3, y2 + carry, self.p)
+        else:
+            qc <<= qu.ctrl(f4) @ x_pow_2_mul_a_mod_n_to_zc(x1, 3, y2 + carry, self.p)
         # ctrl(f4) x2= 2*y1 (mod p)
         qc <<= qu.ctrl(f4) @ x_mul_a_mod_n_to_zc(y1, 2, x2 + carry, self.p)
         # a2=x2^-1 (mod p)
@@ -1259,7 +1224,7 @@ class EccQuantum:
         qc <<= qu.ctrl(regs[0]) @ g.x(zz)
         print("Make Uncompute")
         qc <<= qu.inv @ tmpqc
-        qc <<= qu.ResetGate(ancilla)
+        # qc <<= qu.ResetGate(ancilla)
         print("Complete aG+bQ")
         return qc
 

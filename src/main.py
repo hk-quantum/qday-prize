@@ -95,8 +95,14 @@ def get_primitive_count(result: PrimitiveResult, keys: List[str]):
 def main(get_backend: Callable[[QuantumCircuit], Tuple[Any, QuantumCircuit]]):
     np.random.seed(None)
     bit_num = 4
-    if len(sys.argv) > 1:
-        bit_num = int(sys.argv[1])
+    wide_mode = True
+    for arg in sys.argv[1:]:
+        if arg == "wide":
+            wide_mode = True
+        elif arg == "compact":
+            wide_mode = False
+        else:
+            bit_num = int(sys.argv[1])
 
     # https://www.qdayprize.org/curves.txt
     ecc, Q = get_ecc(bit_num)
@@ -110,11 +116,18 @@ def main(get_backend: Callable[[QuantumCircuit], Tuple[Any, QuantumCircuit]]):
     b_qb = QuantumRegister(ecc.order.bit_length(), name="qb")
     x_qb = QuantumRegister(ecc.bit_num, name="qx")
     y_qb = QuantumRegister(ecc.bit_num, name="qy")
-    ancilla = QuantumRegister(
-        (ecc.get_add_ancilla_size() + ecc.bit_num * 2) * (ecc.order.bit_length() - 1)
-        + ecc.bit_num * 2 * ecc.order.bit_length(),
-        name="ancilla",
-    )
+    if wide_mode:
+        ancilla = QuantumRegister(
+            (ecc.get_add_ancilla_size() + ecc.bit_num * 2)
+            * (ecc.order.bit_length() - 1)
+            + ecc.bit_num * 2 * ecc.order.bit_length(),
+            name="ancilla",
+        )
+    else:
+        ancilla = QuantumRegister(
+            ecc.get_add_ancilla_size() + ecc.bit_num * 6,
+            name="ancilla",
+        )
     a_c = ClassicalRegister(len(a_qb), name="a")
     b_c = ClassicalRegister(len(b_qb), name="b")
     x_c = ClassicalRegister(len(x_qb), name="x")
@@ -124,7 +137,14 @@ def main(get_backend: Callable[[QuantumCircuit], Tuple[Any, QuantumCircuit]]):
     qc <<= g.h(a_qb)
     qc <<= g.h(b_qb)
 
-    qc <<= ecc.x_mul_P_add_y_mul_Q_to_zz_v2(a_qb, ecc.G, b_qb, Q, [*x_qb, *y_qb], ancilla)
+    if wide_mode:
+        qc <<= ecc.x_mul_P_add_y_mul_Q_to_zz_v2(
+            a_qb, ecc.G, b_qb, Q, [*x_qb, *y_qb], ancilla
+        )
+    else:
+        qc <<= ecc.x_mul_P_add_y_mul_Q_to_zz_v3(
+            a_qb, ecc.G, b_qb, Q, [*x_qb, *y_qb], ancilla
+        )
 
     qc.barrier()
     qc.measure(x_qb, x_c)
@@ -136,7 +156,7 @@ def main(get_backend: Callable[[QuantumCircuit], Tuple[Any, QuantumCircuit]]):
     qc.measure(b_qb, b_c)
     tm = time.perf_counter() - start_time
     print(f"Complete Quantum Circuit {tm:.3f}[s]")
-    print(f"  qubit_size={qc.circuit.num_qubits} gate_count={len(qc.circuit.data)}")
+    print(f"  qubit_size={qc.circuit.num_qubits} gate_count={qc.circuit.size()} depth={qc.circuit.depth()}")
 
     # 実行する
     backend, t_qc = get_backend(circuit)
