@@ -73,10 +73,14 @@ IBM_CRN=<Your CRN>
 
 ### 実行方法
 
-起動引数に解読するビット数を指定する（例では11ビット）。
+起動引数に解読するビット数とcompactまたはwideのアルゴリズムの種類を指定する（例では11ビット）。
 
 ```
-python src/main.py 11
+python src/main.py 11 compact
+```
+
+```
+python src/main.py 11 wide
 ```
 
 `data/curves.json`から対象のビット数のECCパラメータを読み込み、量子回路構築およびシミュレータの実行ログを出力しつつ、最後に100ショットの測定結果に基づく秘密鍵の解読成功回数が出力される。
@@ -84,7 +88,11 @@ python src/main.py 11
 IBMの量子コンピュータ（実機）で実行する場合は以下のように起動する。
 
 ```
-python src/ibm_main.py 3
+python src/ibm_main.py 3 compact
+```
+
+```
+python src/ibm_main.py 3 wide
 ```
 
 ### 実行結果
