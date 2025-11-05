@@ -277,11 +277,9 @@ class SparseStatevectorSimulator(BackendV2):
         ctrl_regs: List[int],
         neg_ctrl_regs: List[int],
     ):
-        if isinstance(instr, (Measure, Barrier)):
+        if isinstance(instr, (Measure, Barrier, Reset)):
             # skip
             pass
-        elif isinstance(instr, (Measure, Reset, Barrier)):
-            print("Other", instr.name)
         elif isinstance(instr, ControlledGate):
             new_ctrl_regs = ctrl_regs[:]
             new_neg_ctrl_regs = neg_ctrl_regs[:]
@@ -378,6 +376,10 @@ class SparseStatevectorSimulator(BackendV2):
                         )
                     )
                     self._measure_value(simulator, self._measure[-1])
+                continue
+            elif isinstance(instr, Reset):
+                for ix in range(len(qargs)):
+                    simulator.reset(target_regs[circuit.qubits.index(qargs[ix])])
                 continue
             self._parse_gate(
                 simulator,

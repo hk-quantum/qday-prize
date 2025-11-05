@@ -1,9 +1,10 @@
 # QDay Prize
 
-## Quantum Circuit Overview
+### Quantum Circuit Overview
 
-The following quantum circuit was constructed based on the [Proos–Zalka algorithm](https://arxiv.org/abs/quant-ph/0301141) to break the cryptography.
-Given the ECC parameter $G$ and the public key $Q=dG$, Shor's algorithm is used with $aG+bQ$ as the Oracle. For details of the Oracle, see [this report](https://github.com/hk-quantum/qday-prize/blob/v2.0.0/document/report.md).
+We constructed the following quantum circuit based on the [Proos–Zalka algorithm](https://arxiv.org/abs/quant-ph/0301141) to break ECC cryptography. 
+Given the ECC parameter $G$ and the public key $Q=dG$, we use Shor's algorithm with $aG+bQ$ as the Oracle. 
+For details of the Oracle, see [this report](https://github.com/hk-quantum/qday-prize/blob/v3.0.0/report.pdf).
 
 ```
        ┌───┐                         ░ ┌──────┐┌─┐   
@@ -38,42 +39,31 @@ The quantum circuit consists of the following steps:
 
 The private key is obtained from the measured values $a$ and $b$ as follows:
 
-```math
-\begin{align}
-\text{len} &= \lfloor \log_2 n \rfloor \\
-x &= \mathrm{floor}\!\Bigg(\frac{a \cdot n}{2^{\text{len}}}\Bigg), \mathrm{ceil}\!\Bigg(\frac{a \cdot n}{2^{\text{len}}}\Bigg) \\
-y &= \mathrm{floor}\!\Bigg(\frac{b \cdot n}{2^{\text{len}}}\Bigg), \mathrm{ceil}\!\Bigg(\frac{b \cdot n}{2^{\text{len}}}\Bigg) \\d &= x^{-1} \cdot y \pmod{n}
-\end{align}
-```
+1. Calculate the number of bits $len$ of the order $n$:
+   $$
+   	\text{len} = \lfloor \log_2 n \rfloor
+   $$
+2. Scale $a$ and $b$ to fit the range $2^{len}$ to $n$:
+   $$
+   x=a \cdot \frac{n}{2^{len}} \mapsto \begin{cases} \text{floor}(a \cdot \frac{n}{2^{len}}) \\ \text{ceil}(a \cdot \frac{n}{2^{len}}) \end{cases} \\
+   y=b \cdot \frac{n}{2^{len}} \mapsto \begin{cases} \text{floor}(b \cdot \frac{n}{2^{len}}) \\ \text{ceil}(b \cdot \frac{n}{2^{len}}) \end{cases}
+   $$
+   To account for rounding errors, all four combinations of floor/ceil for $x$ and $y$ are checked.
 
-1. Let $len$ be the number of bits of the order $n$.
-2. Scale $a$ to fit the range from $2^{\text{len}}$ to $n$.
-3. Similarly, scale $b$.
-4. Find the private key $d$ by calculating the inverse of $x$, $x^{-1}$, and multiplying it by $y$.
-
-To account for rounding errors during scaling, all four combinations of floor and ceiling for $x$ and $y$ are calculated, and it is checked whether any of them satisfy the private key condition.
+3. Compute the private key for all four combinations of floor/ceil for $x$ and $y$:
+   $$
+   d = x^{-1} \cdot y \mod n
+   $$
+   That is, calculate $d$ for each of the four combinations (floor/floor, floor/ceil, ceil/floor, ceil/ceil) and check if any of them satisfy the private key condition.
 
 From simulation, the probability of obtaining a measurement result that leads to the correct answer is about 60% to 70% when the number of bits of the order is small, but when the number of bits increases, the probability exceeds 80%.
-On a real quantum computer (ibm_torino), the result was random due to noise.
+On a real quantum computer (ibm_torino), due to noise, the result was almost random and the correct answer rate was similar to random guessing.
 
-## Required Resources
+### Required Resources
 
-In this work, a general-purpose quantum circuit is constructed to work correctly for any ECC parameter, so a relatively large number of quantum gates are required.
-For the [ECC Curves and Keys](https://www.qdayprize.org/curves.txt) presented this time, the required number of quantum bits and quantum gates<sup>1</sup> are as follows.
-The circuit creation time and simulation time on an iMac (Apple M1, Memory 16GB) are also shown for reference.
+This work implements a general-purpose quantum circuit that works for any ECC parameter, so it requires a relatively large number of quantum gates. 
+For the [ECC Curves and Keys](https://www.qdayprize.org/curves.txt) presented, we implemented both a compact version (which reduces the number of qubits at the cost of deeper circuits) and a wide version (which uses more qubits but shallower circuits).
+For details, see [this report](https://github.com/hk-quantum/qday-prize/blob/v3.0.0/report.pdf).
 
-|ecc bits|prime|order|quantum bits|gate count<sup>1</sup>|circuit creation|simulation|
-|--:|--:|--:|--:|--:|:--|:--|
-|4|13|7|78|48261|1.6s|0.6s|
-|6|43|31|152|452274|19.9s|10.7s|
-|7|67|79|221|976577|48.8s|51.7s|
-|8|163|139|276|2240599|126s|5m 27s|
-|9|349|313|337|6347702|418s|1h 23m 54s|
-|10|547|547|404|7000037|562s|9h 15m 51s|
-|11|1051|1093|477|14783371|1355s|76h 44m 39s|
-
-It is estimated that about 200,000 quantum bits are required to break secp256k1 used in Bitcoin.
-
----
-
-<sup>1</sup> Since multi-controlled gates are counted as one quantum gate, the actual number of quantum gates will be larger when transpiled for a real quantum computer.
+For example, to break secp256k1 used in Bitcoin, the compact version requires over 120,000 qubits, and the wide version requires nearly 30 million qubits. 
+Therefore, at present, it is considered unlikely that ECC can be broken by quantum computers.

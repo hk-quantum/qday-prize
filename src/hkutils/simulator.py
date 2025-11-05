@@ -18,6 +18,7 @@ from numpy.typing import NDArray
 import time
 import math
 
+
 def is_zero(val: np.complex128) -> bool:
     return np.abs(val) < 1e-8
 
@@ -73,31 +74,6 @@ def _x_gate(
     idx = np.nonzero(cond)[0]  # ここで初めてbool→index変換
     if idx.size > 0:
         state[idx, iy] ^= bit
-
-    return qstate
-
-
-    # ターゲットビット位置
-    iy, ix = divmod(target_regs[0], 32)
-    bit = np.uint32(1 << ix)
-
-    # 256bit を 32bit 単位に分解
-    if ctrl_mask:
-        mask = np.ones((len(qstate),), dtype=bool)
-        fx = 0
-        while ctrl_mask > 0:
-            if ctrl_mask & 0xFFFFFFFF:
-                mask &= (
-                    qstate["state"][:, fx] & np.uint32(ctrl_mask & 0xFFFFFFFF)
-                ) == np.uint32(ctrl_state & 0xFFFFFFFF)
-            ctrl_mask >>= 32
-            ctrl_state >>= 32
-            fx += 1
-
-        # 条件付き XOR
-        qstate["state"][mask, iy] ^= bit
-    else:
-        qstate["state"][:, iy] ^= bit
 
     return qstate
 
@@ -336,7 +312,7 @@ class QuantumSimulator:
     _max_qubits = 0
 
     def __init__(self, bit_num):
-        #self._max_qubits = bit_num
+        # self._max_qubits = bit_num
         num = math.ceil(bit_num / 32)
         self._state = np.array(
             [(np.zeros([num], dtype=np.uint32), 1 + 0j)],
@@ -439,6 +415,17 @@ class QuantumSimulator:
                 self._state["vec"][i],
             )
         print("Qubit Num", self._max_qubits, "StateCount", len(self._state))
+
+    def reset(self, target: int):
+        val = self.measure(target)
+        if val:
+            self.execute(
+                "x",
+                np.array([[0j, 1 + 0j], [1 + 0j, 0j]], dtype=np.complex128),
+                [target],
+                [],
+                [],
+            )
 
     def reset_measure(self):
         self._measure_mask = 0

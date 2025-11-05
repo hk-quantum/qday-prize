@@ -117,6 +117,19 @@ class QuGate(IGate):
             self._gate.extract(qc, qubits, ctrl, neg_ctrl)
 
 
+class ResetGate(IGate):
+    _qubits: List[Qubit]
+
+    def __init__(self, qubits: QubitTarget):
+        self._qubits = get_qubits(qubits)
+
+    def apply(self, modifier: GateModifier) -> "IGate":
+        return self
+
+    def extract(self, qc: QuantumCircuit) -> None:
+        qc.reset(self._qubits)
+
+
 class CompositeGate(IGate):
     _gates: List[IGate]
 
@@ -138,7 +151,7 @@ class CompositeGate(IGate):
                 for gate in self._gates
             ]
         if modifier._power < 0:
-            base = list(reversed([inv @ gate for gate in self._gates]))
+            base = list(reversed([inv @ gate for gate in base]))
         return CompositeGate(*(base * abs(modifier._power)))
 
     def extract(self, qc: QuantumCircuit) -> None:
@@ -227,6 +240,10 @@ class QiskitWrapperCircuit:
         self, qbits: QubitTarget, cregs: ClassicalRegister
     ) -> "QiskitWrapperCircuit":
         self._circuit.measure(qbits, cregs)
+        return self
+
+    def reset(self, qbits: QubitTarget) -> "QiskitWrapperCircuit":
+        self._circuit.reset(get_qubits(qbits))
         return self
 
 
