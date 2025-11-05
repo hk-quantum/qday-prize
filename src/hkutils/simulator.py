@@ -77,30 +77,6 @@ def _x_gate(
 
     return qstate
 
-    # ターゲットビット位置
-    iy, ix = divmod(target_regs[0], 32)
-    bit = np.uint32(1 << ix)
-
-    # 256bit を 32bit 単位に分解
-    if ctrl_mask:
-        mask = np.ones((len(qstate),), dtype=bool)
-        fx = 0
-        while ctrl_mask > 0:
-            if ctrl_mask & 0xFFFFFFFF:
-                mask &= (
-                    qstate["state"][:, fx] & np.uint32(ctrl_mask & 0xFFFFFFFF)
-                ) == np.uint32(ctrl_state & 0xFFFFFFFF)
-            ctrl_mask >>= 32
-            ctrl_state >>= 32
-            fx += 1
-
-        # 条件付き XOR
-        qstate["state"][mask, iy] ^= bit
-    else:
-        qstate["state"][:, iy] ^= bit
-
-    return qstate
-
 
 def _diagonal_gate(
     qstate: np.ndarray,  # dtype_qstate の配列

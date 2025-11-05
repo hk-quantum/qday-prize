@@ -187,7 +187,7 @@ The number of quantum gates is counted as one for each MCX or SWAP gate, so the 
 |9|239|2,510,080|2,497,470|1534|1,338,402|665,831|
 |10|245|3,322,938|3,305,080|1725|1,758,806|777,520|
 |11|291|6,937,706|6,901,693|2316|3,650,848|1,452,787|
-|12|341|9,232,914||3031|4,835,710||
+|12|341|9,232,912|9,203,552|3031|4,835,708|1,752,882|
 
 As shown above, the compact version increases the number of qubits gradually, while the wide version increases rapidly.  
 However, the wide version allows more parallel execution, so as the ECC bit size increases, the circuit depth increases more slowly compared to the number of gates.
