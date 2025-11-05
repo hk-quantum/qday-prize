@@ -102,7 +102,7 @@ def main(get_backend: Callable[[QuantumCircuit], Tuple[Any, QuantumCircuit]]):
         elif arg == "compact":
             wide_mode = False
         else:
-            bit_num = int(sys.argv[1])
+            bit_num = int(arg)
 
     # https://www.qdayprize.org/curves.txt
     ecc, Q = get_ecc(bit_num)
