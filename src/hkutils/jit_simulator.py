@@ -17,6 +17,8 @@ from typing import List, Tuple, Any, Union, Dict, Callable, Generator, Literal
 from numpy.typing import NDArray
 import time
 import math
+from collections import defaultdict
+from numba import njit, prange, uint32, void
 
 
 def is_zero(val: np.complex128) -> bool:
@@ -27,17 +29,94 @@ def is_one(val: np.complex128) -> bool:
     return np.abs(val - (1.0 + 0j)) < 1e-8
 
 
-def _x_gate(
-    qstate: np.ndarray,  # dtype_qstate の配列
+def get_ctrl_mask(ctrl_regs: List[int], neg_ctrl_regs: List[int]) -> NDArray[np.uint32]:
+    """
+    ctrl_regs: 正制御ビット位置リスト
+    neg_ctrl_regs: 負制御ビット位置リスト
+    -> (index, mask, state) のリスト（indexごとに合成）
+    """
+
+    mask_dict = defaultdict(lambda: [0, 0])  # index: [mask, state]
+    for reg in ctrl_regs:
+        idx, bit = divmod(reg, 32)
+        mask_dict[idx][0] |= 1 << bit
+        mask_dict[idx][1] |= 1 << bit  # 正制御はstate=1
+    for reg in neg_ctrl_regs:
+        idx, bit = divmod(reg, 32)
+        mask_dict[idx][0] |= 1 << bit
+        # 負制御はstate=0（stateの該当bitは0のまま）
+    result = np.array(
+        [(idx, mask, state) for idx, (mask, state) in mask_dict.items() if mask != 0],
+        dtype=np.uint32,
+    )
+    return result
+
+@njit(parallel=True)
+def _x_gate_jit_parallel(
+    qstate: NDArray[np.uint32],  # dtype_qstate の配列
     matrix: NDArray[np.complex128],
-    target_regs: List[int],
-    ctrl_mask: int,
-    ctrl_state: int,
+    iy: np.uint32,
+    bit: np.uint32,
+    ctrl_mask: NDArray[np.uint32],
 ) -> np.ndarray:
     """
     数千万行のqstateに対して条件付きXゲートを高速に適用する。
     qstate["state"] は shape=(N, 8) の np.uint32 配列を想定 (256bit状態)
     """
+    for i in prange(qstate.shape[0]):
+        # --- コントロール条件判定 ---
+        cond = True
+        for cm in ctrl_mask:
+            idx = cm[0]
+            mask = cm[1]
+            cstate = cm[2]
+            if (qstate[i, idx] & mask) != cstate:
+                cond = False
+                break
+        if not cond:
+            continue
+
+        # --- 条件成立行のみXOR ---
+        qstate[i, iy] ^= bit
+
+    return qstate
+
+@njit(parallel=False)
+def _x_gate_jit(
+    qstate: NDArray[np.uint32],  # dtype_qstate の配列
+    matrix: NDArray[np.complex128],
+    iy: np.uint32,
+    bit: np.uint32,
+    ctrl_mask: NDArray[np.uint32],
+) -> np.ndarray:
+    """
+    数千万行のqstateに対して条件付きXゲートを高速に適用する。
+    qstate["state"] は shape=(N, 8) の np.uint32 配列を想定 (256bit状態)
+    """
+    for i in prange(qstate.shape[0]):
+        # --- コントロール条件判定 ---
+        cond = True
+        for cm in ctrl_mask:
+            idx = cm[0]
+            mask = cm[1]
+            cstate = cm[2]
+            if (qstate[i, idx] & mask) != cstate:
+                cond = False
+                break
+        if not cond:
+            continue
+
+        # --- 条件成立行のみXOR ---
+        qstate[i, iy] ^= bit
+
+    return qstate
+
+def _x_gate(
+    qstate: np.ndarray,  # dtype_qstate の配列
+    matrix: NDArray[np.complex128],
+    target_regs: List[int],
+    ctrl_mask: NDArray[np.uint32],
+) -> np.ndarray:
     state = qstate["state"]
 
     # --- ターゲットビット計算 ---
@@ -45,36 +124,31 @@ def _x_gate(
     bit = np.uint32(1 << ix)
 
     # --- コントロールなしパス: 最速処理 ---
-    if ctrl_mask == 0:
+    if ctrl_mask.shape[0] == 0:
         state[:, iy] ^= bit
         return qstate
+    
+    _x_gate_jit(state, matrix, np.uint32(iy), np.uint32(bit), ctrl_mask)
+    return qstate
 
-    # --- ctrl_mask / ctrl_state を32bit単位に分割 ---
-    mask_parts = np.empty(state.shape[1], dtype=np.uint32)
-    state_parts = np.empty(state.shape[1], dtype=np.uint32)
-    for i in range(state.shape[1]):  # 最大8回
-        mask_parts[i] = (ctrl_mask >> (32 * i)) & 0xFFFFFFFF
-        state_parts[i] = (ctrl_state >> (32 * i)) & 0xFFFFFFFF
+def _x_gate_parallel(
+    qstate: np.ndarray,  # dtype_qstate の配列
+    matrix: NDArray[np.complex128],
+    target_regs: List[int],
+    ctrl_mask: NDArray[np.uint32],
+) -> np.ndarray:
+    state = qstate["state"]
 
-    valid_idx = np.nonzero(mask_parts)[0]
-    if len(valid_idx) == 0:
+    # --- ターゲットビット計算 ---
+    iy, ix = divmod(target_regs[0], 32)
+    bit = np.uint32(1 << ix)
+
+    # --- コントロールなしパス: 最速処理 ---
+    if ctrl_mask.shape[0] == 0:
+        state[:, iy] ^= bit
         return qstate
-
-    # --- 条件判定: uint32配列で累積ANDを行い、bool配列を最後に作成 ---
-    # 初期値は最初の有効列
-    fx = valid_idx[0]
-    cond = (state[:, fx] & mask_parts[fx]) == state_parts[fx]
-
-    for fx in valid_idx[1:]:
-        cond &= (state[:, fx] & mask_parts[fx]) == state_parts[fx]
-        if not cond.any():
-            return qstate  # 途中で全Falseなら終了
-
-    # --- 条件成立行のみXOR ---
-    idx = np.nonzero(cond)[0]  # ここで初めてbool→index変換
-    if idx.size > 0:
-        state[idx, iy] ^= bit
-
+    
+    _x_gate_jit_parallel(state, matrix, np.uint32(iy), np.uint32(bit), ctrl_mask)
     return qstate
 
 
@@ -82,8 +156,7 @@ def _diagonal_gate(
     qstate: np.ndarray,  # dtype_qstate の配列
     matrix: NDArray[np.complex128],
     target_regs: List[int],
-    ctrl_mask: int,
-    ctrl_state: int,
+    ctrl_mask: NDArray[np.uint32],
 ) -> NDArray[Any]:
     """
     target_regs のビットが 0/1 に応じて vec を diagonal matrix の対角成分で掛ける
@@ -96,17 +169,11 @@ def _diagonal_gate(
     apply1 = ~apply0
 
     # ctrl_mask がある場合は mask 計算
-    if ctrl_mask:
+    if ctrl_mask.shape[0] > 0:
         mask = np.ones((len(qstate),), dtype=bool)
-        fx = 0
-        while ctrl_mask > 0:
-            if ctrl_mask & 0xFFFFFFFF:
-                mask &= (
-                    qstate["state"][:, fx] & np.uint32(ctrl_mask & 0xFFFFFFFF)
-                ) == np.uint32(ctrl_state & 0xFFFFFFFF)
-            ctrl_mask >>= 32
-            ctrl_state >>= 32
-            fx += 1
+        for cm in ctrl_mask:
+            idx, mask_val, cstate = cm
+            mask &= (qstate["state"][:, idx] & mask_val) == cstate
         apply0 &= mask
         apply1 &= mask
 
@@ -122,8 +189,7 @@ def _anti_diagonal_gate(
     qstate: np.ndarray,  # dtype_qstate の配列
     matrix: NDArray[np.complex128],
     target_regs: List[int],
-    ctrl_mask: int,
-    ctrl_state: int,
+    ctrl_mask: NDArray[np.uint32],
 ) -> NDArray[Any]:
     iy, ix = divmod(target_regs[0], 32)
     bit = np.uint32(1 << ix)
@@ -132,17 +198,11 @@ def _anti_diagonal_gate(
     apply1 = ~apply0
 
     # ctrl_mask がある場合は mask 計算
-    if ctrl_mask:
+    if ctrl_mask.shape[0] > 0:
         mask = np.ones((len(qstate),), dtype=bool)
-        fx = 0
-        while ctrl_mask > 0:
-            if ctrl_mask & 0xFFFFFFFF:
-                mask &= (
-                    qstate["state"][:, fx] & np.uint32(ctrl_mask & 0xFFFFFFFF)
-                ) == np.uint32(ctrl_state & 0xFFFFFFFF)
-            ctrl_mask >>= 32
-            ctrl_state >>= 32
-            fx += 1
+        for cm in ctrl_mask:
+            idx, mask_val, cstate = cm
+            mask &= (qstate["state"][:, idx] & mask_val) == cstate
         apply0 &= mask
         apply1 &= mask
         qstate["state"][mask, iy] ^= bit
@@ -161,8 +221,7 @@ def _swap_gate(
     qstate: np.ndarray,  # dtype_qstate の配列
     matrix: NDArray[np.complex128],
     target_regs: List[int],
-    ctrl_mask: int,
-    ctrl_state: int,
+    ctrl_mask: NDArray[np.uint32],
 ) -> NDArray[Any]:
     """
     target_regs[0] と target_regs[1] のいずれか片方だけが1の場合、
@@ -183,16 +242,10 @@ def _swap_gate(
     mask = b0 != b1  # どちらか片方だけ 1 の行
 
     # ctrl_mask 条件がある場合はマージ
-    if ctrl_mask:
-        fx = 0
-        while ctrl_mask > 0:
-            if ctrl_mask & 0xFFFFFFFF:
-                mask &= (
-                    qstate["state"][:, fx] & np.uint32(ctrl_mask & 0xFFFFFFFF)
-                ) == np.uint32(ctrl_state & 0xFFFFFFFF)
-            ctrl_mask >>= 32
-            ctrl_state >>= 32
-            fx += 1
+    if ctrl_mask.shape[0] > 0:
+        for cm in ctrl_mask:
+            idx, mask_val, cstate = cm
+            mask &= (qstate["state"][:, idx] & mask_val) == cstate
 
     # 条件付きで両方のビットを反転
     qstate["state"][mask, iy0] ^= bit0
@@ -205,8 +258,7 @@ def _square_gate(
     qstate: np.ndarray,  # dtype_qstate の配列
     matrix: NDArray[np.complex128],
     target_regs: List[int],
-    ctrl_mask: int,
-    ctrl_state: int,
+    ctrl_mask: NDArray[np.uint32],
 ) -> np.ndarray:
     if len(target_regs) > 1:
         raise ValueError("Too many target bits: " + str(len(target_regs)))
@@ -232,21 +284,13 @@ def _square_gate(
     i = 0
     while i < len(state):
         # ctrl_mask 条件を満たさなければスキップ
-        if ctrl_mask:
-            tmp_mask = ctrl_mask
-            tmp_state = ctrl_state
-            fx = 0
+        if ctrl_mask.shape[0] > 0:
             ng = False
-            while tmp_mask > 0:
-                if tmp_mask & 0xFFFFFFFF:
-                    if (state_masked[i, fx] & np.uint32(tmp_mask & 0xFFFFFFFF)) != (
-                        tmp_state & 0xFFFFFFFF
-                    ):
-                        ng = True
-                        break
-                tmp_mask >>= 32
-                tmp_state >>= 32
-                fx += 1
+            for cm in ctrl_mask:
+                idx, mask_val, cstate = cm
+                if (state["state"][i, idx] & mask_val) != cstate:
+                    ng = True
+                    break
             if ng:
                 i += 1
                 continue
@@ -289,8 +333,7 @@ def _square_gate(
             next_idx += 1
             i += 1
 
-    return np.concatenate([state[keep_mask], new_elements[:next_idx]])
-
+    return np.ascontiguousarray(np.concatenate([state[keep_mask], new_elements[:next_idx]]))
 
 class QuantumSimulator:
     _state: np.ndarray
@@ -301,8 +344,7 @@ class QuantumSimulator:
                 np.ndarray,
                 NDArray[np.complex128],
                 List[int],
-                int,
-                int,
+                NDArray[np.uint32],
             ],
             np.ndarray,
         ],
@@ -311,14 +353,17 @@ class QuantumSimulator:
     _measure_state: int = 0
     _max_qubits = 0
 
-    def __init__(self, bit_num):
+    def __init__(self, bit_num, parallel: bool = False):
         # self._max_qubits = bit_num
         num = math.ceil(bit_num / 32)
         self._state = np.array(
             [(np.zeros([num], dtype=np.uint32), 1 + 0j)],
             dtype=np.dtype([("state", np.uint32, num), ("vec", np.complex128)]),
         )
-        self._def_gete = {"x": _x_gate, "swap": _swap_gate}
+        if parallel:
+            self._def_gete = {"x": _x_gate_parallel, "swap": _swap_gate}
+        else:
+            self._def_gete = {"x": _x_gate, "swap": _swap_gate}
 
     def execute(
         self,
@@ -331,17 +376,11 @@ class QuantumSimulator:
         for qb in target_regs:
             self._max_qubits = max(self._max_qubits, qb + 1)
         self.apply_measure()
-        ctrl_mask = 0
-        ctrl_flag = 0
-        for ix in ctrl_regs:
-            ctrl_mask |= 1 << ix
-        ctrl_flag = ctrl_mask
-        for ix in neg_ctrl_regs:
-            ctrl_mask |= 1 << ix
+        ctrl_mask = get_ctrl_mask(ctrl_regs, neg_ctrl_regs)
         try:
             if name in self._def_gete:
                 self._state = self._def_gete[name](
-                    self._state, matrix, target_regs, ctrl_mask, ctrl_flag
+                    self._state, matrix, target_regs, ctrl_mask
                 )
             elif len(target_regs) == 1:
                 proc = _square_gate
@@ -350,7 +389,7 @@ class QuantumSimulator:
                 elif is_zero(matrix[0][0]) and is_zero(matrix[1][1]):
                     proc = _anti_diagonal_gate
                 self._state = proc(
-                    self._state, matrix, target_regs, ctrl_mask, ctrl_flag
+                    self._state, matrix, target_regs, ctrl_mask
                 )
             else:
                 raise ValueError("Not Support multi bit gate")
@@ -432,7 +471,7 @@ class QuantumSimulator:
             for v in self._state["state"][i]:
                 st |= v << shft
                 shft += 32
-            yield (int(st), self._state["vec"][i])
+            yield (st, self._state["vec"][i])
 
     def reset(self, target: int):
         val = self.measure(target)

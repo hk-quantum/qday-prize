@@ -24,11 +24,15 @@ from qiskit import QuantumCircuit
 import numpy as np
 import uuid
 from qiskit.circuit.library import Measure
-from typing import List, Tuple, Any, Union, Dict
+from typing import List, Tuple, Any, Union, Dict, Generator
 from numpy.typing import NDArray
 import uuid
-from .simulator import QuantumSimulator
+from .simulator import QuantumSimulator as CpuQuantumSimulator
+from .jit_simulator import QuantumSimulator as JitQuantumSimulator
 import time
+import sys
+
+type QuantumSimulator = Union[CpuQuantumSimulator, JitQuantumSimulator]
 
 dtype_qstate = np.dtype([("hi", np.uint64), ("lo", np.uint64), ("vec", np.complex128)])
 
@@ -262,12 +266,15 @@ class SparseStatevectorSimulator(BackendV2):
     _result: Dict[str, int]
     # 実行開始時間
     _start_time: float
+    # JITモード
+    _jit_mode: Union[None, str]
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self._backend_name = "sparse_simulator"
         self._options = Options(shots=1024)
         self._num_qubits = 90
+        self._jit_mode = None
 
     def _parse_gate(
         self,
@@ -336,6 +343,18 @@ class SparseStatevectorSimulator(BackendV2):
             counts[keystr] += 1
         else:
             counts[keystr] = 1
+
+    def _make_statevector(self, circuit: QuantumCircuit, simulator: QuantumSimulator) -> Generator[Tuple[str, np.complex128]]:
+        for st, amp in simulator.get_statevector():
+            keystr = ""
+            sht = 0
+            for qr in circuit.qregs:
+                bstr = bin(((st >> sht) & ((1 << len(qr)) - 1)))[2:].zfill(len(qr))
+                if keystr:
+                    keystr = " " + keystr
+                keystr = bstr + keystr
+                sht += len(qr)
+            yield (keystr, amp)
 
     def _parse_circuit(
         self,
@@ -410,6 +429,10 @@ class SparseStatevectorSimulator(BackendV2):
     def _default_options(cls):
         return Options(shots=1024)
 
+    def set_jit_mode(self, mode: Union[None, str]):
+        """JITモードを設定する。mode=None, "single", "parallel" のいずれか"""
+        self._jit_mode = mode
+
     def run(self, circuits, **run_options) -> JobV1:
         """Qiskitが実際に回路を実行する際に呼び出すメソッド"""
         if not isinstance(circuits, list):
@@ -418,7 +441,12 @@ class SparseStatevectorSimulator(BackendV2):
         self._measure = []
         self._result = {}
 
-        simulator = QuantumSimulator(circuits[0].num_qubits)
+        if self._jit_mode == "single":
+            simulator = JitQuantumSimulator(circuits[0].num_qubits)
+        elif self._jit_mode == "parallel":
+            simulator = JitQuantumSimulator(circuits[0].num_qubits, True)
+        else:
+            simulator = CpuQuantumSimulator(circuits[0].num_qubits)
         self._parse_circuit(simulator, circuits[0])  # type: ignore
 
         # simulator.dump()
@@ -439,7 +467,7 @@ class SparseStatevectorSimulator(BackendV2):
         myres = ExperimentResult(
             shots, True, mydt, header=build_header_from_circuit(circuits[0])
         )
-        result = Result(results=[myres])
+        result = Result(results=[myres], quasi_dists=[{"01": 0.5}], state_vector=self._make_statevector(circuits[0], simulator))
 
         return ResultJob(self, result)
 
@@ -447,4 +475,13 @@ class SparseStatevectorSimulator(BackendV2):
 def get_backend(
     circuit: QuantumCircuit,
 ) -> Tuple[SparseStatevectorSimulator, QuantumCircuit]:
-    return (SparseStatevectorSimulator(), circuit)
+    jit_mode = None
+    for arg in sys.argv:
+        if arg == "-single":
+            jit_mode = "single"
+        elif arg == "-parallel":
+            jit_mode = "parallel"
+    simulator = SparseStatevectorSimulator()
+    print(f"JIT mode: {jit_mode}")
+    simulator.set_jit_mode(jit_mode)
+    return (simulator, circuit)
