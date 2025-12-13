@@ -1,8 +1,6 @@
-
 # Details of the Quantum Circuit
 
 The overall structure of the quantum circuit utilizing Shor's algorithm is shown below.
-
 
 ```
        ┌───┐                         ░ ┌──────┐┌─┐   
@@ -23,38 +21,88 @@ anc_1: ─────┤3               ├─╫──╫──░────
   b: 1/════════════════════════╬══╬════════════════╩═
                                ║  ║                0 
  xy: 2/════════════════════════╩══╩══════════════════
-                               0  1                                  
+                               0  1                  
 ```
 
-The core of this quantum circuit is the $aG+bQ$ operation. There are two implementations: a "compact" version, which reduces the number of qubits at the cost of deeper circuits, and a "wide" version, which uses more qubits but shallower circuits.
+The central operation of this circuit is the calculation of the elliptic-curve point combination aG + bQ. Below we explain how this is constructed; as an example we describe the 8-bit case.
 
-- **Compact version**
-       - By uncomputing after each coordinate addition, the number of ancilla qubits is minimized for each ECC addition.
-       - Effective for simulators where the number of qubits affects memory usage.  
-       ![compcat](aG_add_bQ_compact.png)
+If the integers a and b are represented by bit strings
 
-- **Wide version**
-       - All ECC additions are performed first, then the result is copied and uncomputed at the end.
-       - Requires as many qubits as the number of ECC additions, but is effective for real quantum hardware.  
-![wide](aG_add_bQ_wide.png)
+\(a=\ket{a_7a_6\dots a_0},\quad b=\ket{b_7b_6\dots b_0}\),
 
-
-The set operation $a_iG^{2^i}+b_iQ^{2^i}$ and the ECC addition ($y^2=x^3+ax+b \mod p$) used in the above circuit are described below.
-
-## Quantum Circuit: set $a_iG^{2^i}+b_iQ^{2^i}$
-
-$aG+bQ$ can be decomposed into bitwise additions as $\sum_{i=0}^n (a_iG^{2^i}+b_iQ^{2^i})$.  
-For each bit, the addition result is one of four values depending on the combination of $\ket{b_i a_i}$: $\ket{00}O+\ket{01}G^{2^i}+\ket{10}Q^{2^i}+\ket{11}(G^{2^i}+Q^{2^i})$.  
-$G^{2^i}, Q^{2^i}, G^{2^i}+Q^{2^i}$ are precomputed classically, and the quantum circuit sets the result to the target register using $b_i, a_i$ as control bits.  
-This reduces the number of ECC additions required in the quantum circuit.
+then
 
 ```math
-\ket{a_i}\ket{b_i}\ket{0} \mapsto \begin{cases} \ket{0}\ket{0}\ket{0}, & \text{if}(a_i=0,b_i=0) \\
-\ket{1}\ket{0}\ket{G^{2^i}}, & \text{if}(a_i=1,b_i=0) \\
-\ket{0}\ket{1}\ket{Q^{2^i}}, & \text{if}(a_i=0,b_i=1) \\
-\ket{1}\ket{1}\ket{G^{2^i}+Q^{2^i}}, & \text{if}(a_i=1,b_i=1) \\
-\end{cases}
+aG+bQ=\ket{a_7}G^{2^7}+\ket{a_6}G^{2^6}+\cdots+\ket{a_0}G+\ket{b_7}Q^{2^7}+\cdots+\ket{b_0}Q
 ```
+
+That is, we construct the superposition of point additions by adding the contributions of each bit. In the naive decomposition this would require 15 point additions for the 8-bit example.
+
+Because ECC point addition is a relatively heavy quantum subroutine, Version 3 of this work reduced the number of quantum point additions by precomputing small superpositions classically. Concretely, Version 3 computed
+
+```math
+aG+bQ=\ket{a_7b_7}f(a_7,b_7)+\ket{a_6b_6}f_2(a_6,b_6)+\cdots+\ket{a_0b_0}f(a_0,b_0)
+```
+
+where classically computed maps $f(a_i,b_i) = \ket{a_i}G^{2^i}+\ket{b_i}Q^{2^i}$ (a superposition of up to four coordinates) are loaded into quantum registers. This reduces the number of quantum point additions from 15 to 7.
+
+In Version 4 (this submission) we further reduce the number of quantum point additions by grouping multiple bits and preparing larger precomputed superpositions classically. The decomposition used here is
+
+```math
+\begin{aligned}
+aG + bQ =\;&
+\ket{a_1 a_2 a_3} g_3(a_1,a_2,a_3)
++ \ket{a_4 a_5 a_6} g_3(a_4,a_5,a_6)
++ \ket{a_0 a_7} g_2(a_0,a_7) \\
+&\quad
++ \ket{b_1 b_2 b_3} q_3(b_1,b_2,b_3)
++ \ket{b_4 b_5 b_6} q_3(b_4,b_5,b_6)
++ \ket{b_0 b_7} q_2(b_0,b_7)
+\end{aligned}
+```
+
+Here the classically prepared functions create the following superpositions which are then loaded into quantum registers:
+
+```math
+\begin{aligned}
+ g_3(a_i,a_j,a_k) &= \ket{a_i}G^{2^i}+\ket{a_j}G^{2^j}+\ket{a_k}G^{2^k} \\
+ g_2(a_i,a_j)    &= \ket{a_i}G^{2^i}+\ket{a_j}G^{2^j} \\
+ q_3(b_i,b_j,b_k) &= \ket{b_i}Q^{2^i}+\ket{b_j}Q^{2^j}+\ket{b_k}Q^{2^k} \\
+ q_2(b_i,b_j)    &= \ket{b_i}Q^{2^i}+\ket{b_j}Q^{2^j}
+\end{aligned}
+```
+
+Using this approach, the number of quantum point additions is reduced to five.
+
+As an additional micro-optimization, when particular control branches that add complexity (such as doubling the same coordinate or adding the inverse leading to the point at infinity O) are provably unnecessary, we replace the point-addition circuit with a simpler variant. Concretely we use two circuit modes:
+
+```math
+\begin{aligned}
+add_{normal} &:\; \ket{a_1 a_2 a_3} g_3(a_1,a_2,a_3)
++ \ket{a_4 a_5 a_6} g_3(a_4,a_5,a_6) \\
+add_{nodbl} &:\; \ket{a_1a_2\dots a_6}g_6(a_1,a_2,\dots,a_6) + \ket{a_0a_7}g_2(a_0,a_7)
+\end{aligned}
+```
+
+When creating the superposition for aG, we select between $add_{normal}$ (no doubling or inverse additions occur) and $add_{nodbl}$ (inverse additions can occur but doubling does not). This choice reduces the number of quantum gates; the same logic is applied symmetrically when building bQ.
+
+## Two circuit variants
+
+This implementation provides two variants of the quantum circuit:
+
+- compact: minimizes the number of qubits at the cost of deeper circuits.
+  - The circuit uncomputes after each point addition, allowing ancilla reuse.
+  - Effective on simulators where memory scales with qubit count.
+  - Illustration:
+    ![compact](aG_add_bQ_compact.png)
+
+- wide: increases qubit count to reduce circuit depth.
+  - All ECC additions are performed (in parallel where possible), then the state is copied and finally uncomputed.
+  - Effective for real quantum hardware that benefits from parallelism.
+  - Illustration:
+    ![wide](aG_add_bQ_wide.png)
+
+With current hardware noise levels neither variant produced the expected measurement outcomes, but we expect that future improvements in quantum hardware will enable correct execution for one of these approaches.
 
 ## Quantum Circuit: ECC Addition
 
@@ -87,8 +135,8 @@ Each quantum register is further decomposed as follows:
 - $a_2$: Quantum register for modular inverse calculation in $\lambda$ denominator
 
 
-In Version 3, by efficiently using these registers, the number of quantum gates was greatly reduced.  
-The detailed calculation process for ECC addition is as follows:
+In Version 3 and later, by efficiently using the registers described above, we achieved a significant reduction in the number of quantum gates.  
+The detailed computation steps are shown below:
 
 |Target Register|Control Bits|Quantum Operation|Value After|Remarks|
 |---|---|---|---|---|
@@ -112,84 +160,70 @@ The detailed calculation process for ECC addition is as follows:
 |$y_3$|$f_1,f_2,f_3,x_1,y_1,\lambda$|$\ket{0} \mapsto \ket{\lambda \cdot x_1 - y_1 \mod p}, \text{if}(f_1=0,f_2=0,f_3=0)$|$\begin{cases} \ket{y_2}, & \text{if}(f_1=1) \\ \ket{y_1}, & \text{if}(f_2=1) \\ \ket{0}, & \text{if}(f_3=1) \\ \ket{\lambda (x_1-x_3) - y_1 \mod p}, & \text{otherwise} \end{cases}$|Final calculation of $y_3$|
 
 After obtaining the result, the ECC addition circuit must be uncomputed to return all ancilla to $\ket{0}$.  
-In the wide version, uncomputation is performed after all $aG+bQ$ calculations, requiring extra qubits for each addition.  
-In the compact version, uncomputation is performed after each addition, allowing efficient reuse of qubits.
+In the wide variant uncomputation is performed after all $aG+bQ$ calculations, which requires extra qubits proportional to the number of intermediate additions.  In the compact variant each addition is uncomputed immediately, enabling efficient qubit reuse.
 
-Furthermore, in the compact version, the addition is performed as $\ket{xx}\ket{yy} \mapsto \ket{xx+yy}\ket{yy}$, and ancilla bits are returned to $\ket{0}$ as follows:
+The compact variant performs the addition as $\ket{xx}\ket{yy}\ket{0}\ket{0} -> \dots -> \ket{xx+yy}\ket{yy}\ket{0}\ket{0}$ while ensuring ancilla return to $\ket{0}$ by the following sequence:
 
 1. $\ket{xx}\ket{yy}\ket{0}\ket{0}$
-2. $\ket{xx}\ket{yy}\ket{0}\ket{xx+yy,\textit{junk}}$: ECC addition
-3. $\ket{xx}\ket{yy}\ket{xx+yy}\ket{xx+yy,\textit{junk}}$: Copy result to third register
-4. $\ket{xx}\ket{yy}\ket{xx+yy}\ket{0}$: Uncompute ECC addition to return fourth register to $\ket{0}$
-5. $\ket{xx+yy}\ket{yy}\ket{xx}\ket{0}$: SWAP $\ket{xx}$ and $\ket{xx+yy}$
-6. $\ket{xx+yy}\ket{-yy}\ket{xx}\ket{0}$: Prepare for subtraction by mapping $\ket{yy} \mapsto \ket{-yy}$
-7. $\ket{xx+yy}\ket{-yy}\ket{xx}\ket{xx,\textit{junk}}$: ECC addition to compute $\ket{xx}$
-8. $\ket{xx+yy}\ket{-yy}\ket{0}\ket{xx,\textit{junk}}$: Return third register to $\ket{0}$
-9. $\ket{xx+yy}\ket{-yy}\ket{0}\ket{0}$: Uncompute ECC addition to return fourth register to $\ket{0}$
-10. $\ket{xx+yy}\ket{yy}\ket{0}\ket{0}$: Restore $\ket{-yy}$ to original
+2. $\ket{xx}\ket{yy}\ket{0}\ket{xx+yy,\textit{junk}}$ (ECC addition)
+3. $\ket{xx}\ket{yy}\ket{xx+yy}\ket{xx+yy,\textit{junk}}$ (copy result to third register)
+4. $\ket{xx}\ket{yy}\ket{xx+yy}\ket{0}$ (uncompute ECC addition to return fourth register to $\ket{0}$)
+5. $\ket{xx+yy}\ket{yy}\ket{xx}\ket{0}$ (SWAP to move result)
+6. $\ket{xx+yy}\ket{-yy}\ket{xx}\ket{0}$ (map $\ket{yy}\mapsto\ket{-yy}$ to prepare subtraction)
+7. $\ket{xx+yy}\ket{-yy}\ket{xx}\ket{xx,\textit{junk}}$ (ECC addition to recompute $\ket{xx}$)
+8. $\ket{xx+yy}\ket{-yy}\ket{0}\ket{xx,\textit{junk}}$ (clear third register)
+9. $\ket{xx+yy}\ket{-yy}\ket{0}\ket{0}$ (uncompute to clear fourth register)
+10. $\ket{xx+yy}\ket{yy}\ket{0}\ket{0}$ (restore $\ket{-yy}$ to original)
 
-### Sub-Quantum Circuits
+Note that for additions where doubling or inverse-based addition cannot result in the point at infinity O (\(add_{normal}\), \(add_{nodbl}\)), we omit unnecessary flags and conditional branches to reduce the number of quantum gates.
 
+### Subcircuits
 
-Various sub-quantum circuits are prepared for ECC addition.
+The implementation contains a set of reusable subcircuits used throughout the ECC arithmetic:
 
-- $\ket{x}_n \mapsto \ket{x+1}$
-    - Increment circuit for arbitrary bit width. This is the basis for all calculations.
-- $\ket{x}_n \mapsto \ket{x+a}$
-    - Addition of a constant. Realized by combining increment circuits.
-- $\ket{x}_n\ket{y}_m \mapsto \ket{x}\ket{y+x}$
-    - Addition between quantum registers. Realized by combining controlled increment circuits.
-- $\ket{x}_{n+1} \mapsto \ket{x + a \mod p}$
-    - Modular addition of a constant. Implemented so that the carry bit returns to $\ket{0}$.
-- $\ket{x}_n\ket{y}_{n+1} \mapsto \ket{x}\ket{y+x \mod p}$
-    - Modular addition between quantum registers. Implemented so that the carry bit returns to $\ket{0}$.
-- $\ket{x}_{n+1} \mapsto \ket{-x \mod p}$
-    - Modular additive inverse of the quantum register itself.
-- $\ket{x}_n\ket{0}_n \mapsto \ket{x}\ket{-x \mod p}$
-    - Set modular additive inverse to another quantum register.
-- $\ket{x}_n\ket{0}_{n+1} \mapsto \ket{x}\ket{x^2 \mod p}$
-    - Modular squaring. This is realized by, for all $i,j$, using controlled operations on $\ket{x_i},\ket{x_j}$ and adding the classically precomputed constant $2^{i+j} \mod p$ to the target register. (The same approach is used for subsequent multiplications.)
-- $\ket{x}_n\ket{y}_{n+1} \mapsto \ket{x}\ket{y+x^2 \mod p}$
-    - Modular squaring and addition at the same time.
-- $\ket{x}_n\ket{0}_{n+1} \mapsto \ket{x}\ket{a \cdot x^2 \mod p}$
-    - Modular squaring and multiplication by a constant at the same time.
-- $\ket{x}_n\ket{y}_{n+1} \mapsto \ket{x}\ket{y+a \cdot x^2 \mod p}$
-    - Modular squaring, multiplication by a constant, and addition at the same time.
-- $\ket{x}_n\ket{0}_{n+1} \mapsto \ket{x}\ket{a \cdot x \mod p}$
-    - Modular multiplication by a constant.
-- $\ket{x}_n\ket{y}_{n+1} \mapsto \ket{x}\ket{y+a \cdot x \mod p}$
-    - Modular multiplication by a constant and addition at the same time.
-- $\ket{x}_n\ket{y}_n\ket{0}_{n+1} \mapsto \ket{x}\ket{y}\ket{x \cdot y \mod n}$
-    - Modular multiplication between quantum registers.
-- $\ket{x}_n\ket{y}_n\ket{z}_{n+1} \mapsto \ket{x}\ket{y}\ket{z+x \cdot y \mod n}$
-    - Modular multiplication and addition at the same time.
-- $\ket{x}_n\ket{0}_n\ket{0}_{m \cdot n+1} \mapsto \ket{x}\ket{x^a}\ket{\textit{junk}}$
-    - Modular exponentiation by a constant. Realized by combining modular squaring and modular multiplication. Used for modular inverse calculation.
+- Increment: $\ket{x}_n\mapsto\ket{x+1}$ — arbitrary-width increment.
+- Constant addition: $\ket{x}_n\mapsto\ket{x+a}$ — implemented from increment building blocks.
+- Register addition: $\ket{x}_n\ket{y}_m\mapsto\ket{x}\ket{y+x}$ — built from controlled increments.
+- Modular constant addition: $\ket{x}_{n+1}\mapsto\ket{x+a\bmod p}$ — implemented such that carries are returned to $\ket{0}$.
+- Modular register addition: $\ket{x}_n\ket{y}_{n+1}\mapsto\ket{x}\ket{y+x\bmod p}$ — with carry cleared.
+- Modular negation: $\ket{x}_{n+1}\mapsto\ket{-x\bmod p}$.
+- Set inverse into another register: $\ket{x}_n\ket{0}_n\mapsto\ket{x}\ket{-x\bmod p}$.
+- Modular squaring: $\ket{x}_n\ket{0}_{n+1}\mapsto\ket{x}\ket{x^2\bmod p}$ — implemented by controlled adds of classically precomputed constants $2^{i+j}\bmod p$.
+- Combined modular squaring and addition/multiplication primitives used to build higher-level routines (multiplication, exponentiation, modular inverse, etc.).
 
-Even for similar calculations, the quantum circuit differs between constant operations and register-to-register operations.
-Also, the following two circuits yield the same result when $\ket{y}=\ket{0}$, so only the latter is strictly necessary, but the former can be implemented with fewer quantum gates and is used as appropriate.
-
-- $\ket{x}_n\ket{0}_{n+1} \mapsto \ket{x}\ket{a \cdot x \mod p}$
-- $\ket{x}_n\ket{y}_{n+1} \mapsto \ket{x}\ket{y+a \cdot x \mod p}$
+Some circuits are specialized for constant vs register operands; when $\ket{y}=\ket{0}$ the two variants produce the same result, but the constant-operated variant often uses fewer gates and is preferred when applicable.
 
 ## Scale of the Quantum Circuit
 
-The following table shows the number of qubits, quantum gates, and circuit depth for each ECC bit size.  
-The number of quantum gates is counted as one for each MCX or SWAP gate, so the actual number after transpilation is much larger, but this is sufficient to represent the scale of the circuit (especially for simulator execution time).
+The table below summarizes the number of qubits, quantum gates and depth for each ECC bit size.  
+The number of quantum gates is counted as one for each MCX or SWAP gate; after transpilation the real gate counts on hardware are much larger, but these numbers capture circuit scale for simulator runtime and resource estimation.
 
 |ecc<br>bits|qbits<br>(compact)|gates<br>(compact)|depth<br>(compact)|qbits<br>(wide)|gates<br>(wide)|depth<br>(wide)|
 |--:|--:|--:|--:|--:|--:|--:|
-|3|50|5,100|4,563|82|3,388|3,026|
-|4|75|19,514|18,720|128|12,992|12,467|
-|6|123|165,008|162,005|390|94,214|69,363|
-|7|145|479,286|473,012|660|261,272|128,935|
-|8|181|1,102,960|1,090,685|979|593,664|251,620|
-|9|239|2,510,080|2,497,470|1534|1,338,402|665,831|
-|10|245|3,322,938|3,305,080|1725|1,758,806|777,520|
-|11|291|6,937,706|6,901,693|2316|3,650,848|1,452,787|
-|12|341|9,232,912|9,203,552|3031|4,835,708|1,752,882|
+|3|47|3,377|3,078|76|1,720|1,542|
+|4|71|12,971|12,548|120|6,522|6,283|
+|5|93|47,986|46,860|223|24,010|23,412|
+|6|117|138,286|136,175|366|62,292|40,528|
+|7|138|338,976|335,086|618|164,926|124,419|
+|8|163|825,873|817,349|923|387,780|229,635|
+|9|230|1,641,514|1,634,177|1462|784,956|468,072|
+|10|235|2,287,611|2,276,484|1635|1,115,400|749,091|
+|11|280|4,992,898|4,968,256|2206|2,391,440|1,358,478|
+|12|329|6,027,756|6,010,187|2899|2,901,368|1,651,805|
 
-As shown above, the compact version increases the number of qubits gradually, while the wide version increases rapidly.  
-However, the wide version allows more parallel execution, so as the ECC bit size increases, the circuit depth increases more slowly compared to the number of gates.
+As shown, the compact variant increases qubit count slowly while the wide variant grows rapidly.  
+However, the wide variant allows more parallel execution, so as the ECC bit size increases, the circuit depth increases more slowly compared to the number of gates.
 
-For actual quantum computers, the wide version is more effective, but with the current error rates, it is difficult to execute even 3-bit ECC without errors.
+In practice the wide variant would be favorable for hardware execution, but with the current error rates even a 3-bit ECC instance is difficult to run error-free on available devices.
+
+As a reference, the table below shows the scale of quantum gate counts after transpilation when running the circuits on real hardware (ibm_fez).
+
+|bits|type|qbits|gates|depth|sx gate|cz gate|rz gate|x gate|
+|--:|--:|--:|--:|--:|--:|--:|--:|--:|
+|3|compact|47|1,012,397|545,758|536,619|253,993|220,752|1,021|
+|3|wide|76|505,461|270,058|267,887|127,056|109,939|567|
+|4|compact|71|4,167,068|2,246,123|2,217,253|1,048,828|897,179|3,794|
+|4|wide|120|2,080,814|1,117,623|1,107,430|524,356|447,024|1,990|
+|5|compact|93|17,462,887|9,461,983|9,318,314|4,412,259|3,720,215|12,081|
+
+Beyond these entries we could not execute further runs because we exceeded the hardware limits on qubit count or gate count.

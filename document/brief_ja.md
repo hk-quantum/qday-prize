@@ -4,7 +4,7 @@
 
 [proos–zalka algorithm](https://arxiv.org/abs/quant-ph/0301141) をベースに以下の量子回路を作成して暗号を解読した。  
 ECCのパラメータ $G$ と公開鍵 $Q=dG$ の $Q$ が与えられているため、$aG+bQ$をOracleとするショアのアルゴリズムを利用する。  
-Oracleの詳細は[このレポート](https://github.com/hk-quantum/qday-prize/blob/v2.0.0/document/report_ja.md)を参照。
+Oracleの詳細は[このレポート](https://github.com/hk-quantum/qday-prize/blob/v4.0.0/document/report_ja.md)を参照。
 
 ```
        ┌───┐                         ░ ┌──────┐┌─┐   
@@ -62,7 +62,7 @@ d=x^{-1} \cdot y \mod p
 
 本作では、どのようなECCパラメータでも正しく動作するよう汎用的な量子回路で構成していることから、比較的多くの量子ゲートを必要としている。  
 今回提示されている[ECC Curves and Keys](https://www.qdayprize.org/curves.txt)に対して、量子回路は深くなるものの量子ビット数を抑えたcompact版と、量子ビット数は増えるものの量子回路を浅くした wide 版を実装している。  
-詳細は[このレポート](https://github.com/hk-quantum/qday-prize/blob/v2.0.0/document/report_ja.md)を参照。
+詳細は[このレポート](https://github.com/hk-quantum/qday-prize/blob/v4.0.0/document/report_ja.md)を参照。
 
 今回の量子回路では、ビットコインで採用されている secp256k1 を解読する場合、compact版で12万量子ビット以上、wide版で3000万量子ビット近く必要になる。  
 このことから、現段階では量子コンピュータにより解読される可能性は低いと考えられる。

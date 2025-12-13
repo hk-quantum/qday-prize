@@ -6,9 +6,9 @@ hk.quantum@icloud.com
 
 ## Background
 
-I am a software developer at a Japanese software development company. To understand how quantum computers work, I created my own quantum computer simulator and related tools.
+I am a software engineer at a Japanese software company. To better understand how quantum computers work, I developed my own quantum circuit simulator and tooling.
 
-For RSA cryptanalysis (factoring a composite number made from two primes), I have succeeded in simulating quantum circuits that break the following bit sizes using my custom simulator:
+For RSA cryptanalysis (factoring composite numbers made from two primes), I have simulated quantum circuits that succeeded for these bit sizes using my custom tools:
 
 - Broke 10 bits with Shor's algorithm
 - Broke 40 bits with Grover's algorithm
@@ -16,7 +16,7 @@ For RSA cryptanalysis (factoring a composite number made from two primes), I hav
 
 ## What I Broke This Time
 
-The maximum bit size for which I was able to execute a quantum circuit on the simulator was 12 bits.
+The largest bit size for which I was able to run a quantum circuit on the simulator is 12 bits:
 
 ```
 --- Bit size 12 ---
@@ -30,33 +30,34 @@ Private key d: 1384
 Public key Q: (1043, 1795)
 ```
 
-The maximum bit size executed on a real IBM quantum computer (ibm_torino) was 4 bits.
+The largest bit size executed on an IBM quantum computer (ibm_fez) in this work was 5 bits:
 
 ```
---- Bit size 4 ---
-Bit size: 4
-Prime p: 13
-Curve order (#E): 7
-Subgroup order n: 7
-Cofactor h: 1
-Generator point G: (11, 5)
-Private key d: 6
-Public key Q: (11, 8)
+"bit_length": 5,
+"prime": 23,
+"a": 1,
+"b": 11,
+"generator_point": [7, 4],
+"public_key": [9, 6]
 ```
 
 
 ## Execution Environment
 
-The quantum circuits are implemented with Qiskit and executed using my high-performance custom simulator `SparseStatevectorSimulator` as the backend.
+Quantum circuits are implemented using Qiskit and executed with my high-performance simulator `SparseStatevectorSimulator` as the backend.
 
-On IBM's quantum computer "ibm_torino", I was able to run a 4-bit ECC curve, but due to circuit depth and noise the results were essentially random and did not achieve the expected accuracy. The execution time for 100 shots was about 35 seconds.
+On IBM's quantum device `ibm_fez`, I could run a 5-bit ECC curve, but due to circuit depth and device noise the results were essentially random and did not reach the expected accuracy. Measured execution times for 100 shots were approximately:
+
+- 3 bits: ~3 seconds
+- 4 bits: ~8 seconds
+- 5 bits: ~30 seconds
+
 
 ## Execution Procedure
 
-
 ### Initial Setup
 
-Set up a Python virtual environment and install the required libraries:
+Create a Python virtual environment and install dependencies:
 
 ```
 git clone https://github.com/hk-quantum/qday-prize.git
@@ -66,7 +67,7 @@ source venv/bin/activate
 pip install -r requirements.txt
 ```
 
-If you want to run on IBM Quantum hardware, set your IBM Quantum Platform API key and CRN in a `.env` file:
+To run on IBM Quantum hardware, set your IBM Quantum Platform API key and CRN in a `.env` file:
 
 ```
 API_KEY=<Your API Key>
@@ -76,59 +77,57 @@ IBM_CRN=<Your CRN>
 
 ### How to Run
 
-Specify the bit size to break and the algorithm variant (`compact` or `wide`) as command-line arguments. Examples:
+Specify the bit size to target and the algorithm variant (`compact` or `wide`) as command-line arguments. Optionally choose single-threaded (`-single`) or multi-threaded (`-parallel`) JIT execution.
 
 ```
-python src/main.py 11 compact
+python src/main.py <num_bits> compact|wide [-single|-parallel]
 ```
 
-```
-python src/main.py 11 wide
-```
+The program reads ECC parameters for the chosen bit size from `data/curves.json`, constructs the quantum circuit, runs the selected backend, and writes execution logs. At the end it reports the number of successful private-key recoveries out of 100 measurement shots.
 
-The program reads the ECC parameters for the target bit size from `data/curves.json`, constructs the quantum circuit, runs the chosen backend, and writes execution logs. At the end it prints the number of successful private-key recoveries based on 100 measurement shots.
-
-To run on IBM hardware, use the `ibm_main.py` entrypoint with the same arguments (example for 3 bits):
+To run on IBM hardware use:
 
 ```
-python src/ibm_main.py 3 compact
-```
-
-```
-python src/ibm_main.py 3 wide
+python src/ibm_main.py <num_bits> compact|wide
 ```
 
 
 ### Execution Results
 
-From the measurement results of 100 shots, the decrypted private key and the number of successful decryptions are printed in the last line of the log.
+From the 100-shot measurements the recovered private key and number of successful recoveries are printed in the last line of the log.
 
-The following are example results run on IBM hardware (`ibm_torino`) from [Version 2](https://github.com/hk-quantum/qday-prize/tree/v2.0.0):
+Example runs on IBM hardware (`ibm_fez`):
 
-|log file|output result|
-|---|---|
-|`logs/3_ibm.out`|`Success: d=3 count=33`|
-|`logs/4_ibm.out`|`Success: d=6 count=20`|
-
-
-The following results were collected using my simulator `SparseStatevectorSimulator` ([Version 3](https://github.com/hk-quantum/qday-prize/tree/v3.0.0)):
-
-|log file|type|output result|
+| log file | type    | output result |
 |---|---|---|
-|`logs/3_compsact.out`|`compact`|`Success: d=3 count=75`|
-|`logs/3_wide.out`|`wide`|`Success: d=3 count=63`|
-|`logs/4_compact.out`|`compact`|`Success: d=6 count=76`|
-|`logs/4_wide.out`|`wide`|`Success: d=6 count=81`|
-|`logs/6_compact.out`|`compact`|`Success: d=18 count=78`|
-|`logs/6_wide.out`|`wide`|`Success: d=18 count=81`|
-|`logs/7_compact.out`|`compact`|`Success: d=56 count=86`|
-|`logs/7_wide.out`|`wide`|`Success: d=56 count=82`|
-|`logs/8_compact.out`|`compact`|`Success: d=103 count=88`|
-|`logs/8_wide.out`|`wide`|`Success: d=103 count=89`|
-|`logs/9_compact.out`|`compact`|`Success: d=135 count=92`|
-|`logs/9_wide.out`|`wide`|`Success: d=135 count=92`|
-|`logs/10_compact.out`|`compact`|`Success: d=165 count=91`|
-|`logs/11_compact.out`|`compact`|`Success: d=756 count=94`|
-|`logs/12_compact.out`|`compact`|`Success: d=1384 count=93`|
+| `logs/3_ibm_compact.out` | compact | `Success: d=6 count=24` |
+| `logs/3_ibm_wide.out`    | wide    | `Success: d=3 count=34` |
+| `logs/4_ibm_compact.out` | compact | `Success: d=6 count=27` |
+| `logs/4_ibm_wide.out`    | wide    | `Success: d=6 count=26` |
+| `logs/5_ibm_compact.out` | compact | `Success: d=6 count=24` |
+
+
+The following results were obtained using my simulator `SparseStatevectorSimulator` (see [Version 4](https://github.com/hk-quantum/qday-prize/tree/v4.0.0)):
+
+| log file | type    | output result |
+|---|---|---|
+| `logs/3_compact.out`  | compact | `Success: d=3 count=68` |
+| `logs/3_wide.out`     | wide    | `Success: d=3 count=75` |
+| `logs/4_compact.out`  | compact | `Success: d=6 count=79` |
+| `logs/4_wide.out`     | wide    | `Success: d=6 count=75` |
+| `logs/5_compact.out`  | compact | `Success: d=6 count=80` |
+| `logs/5_wide.out`     | wide    | `Success: d=6 count=75` |
+| `logs/6_compact.out`  | compact | `Success: d=18 count=82` |
+| `logs/6_wide.out`     | wide    | `Success: d=18 count=76` |
+| `logs/7_compact.out`  | compact | `Success: d=56 count=85` |
+| `logs/7_wide.out`     | wide    | `Success: d=56 count=85` |
+| `logs/8_compact.out`  | compact | `Success: d=103 count=87` |
+| `logs/8_wide.out`     | wide    | `Success: d=103 count=88` |
+| `logs/9_compact.out`  | compact | `Success: d=135 count=87` |
+| `logs/9_wide.out`     | wide    | `Success: d=135 count=85` |
+| `logs/10_compact.out` | compact | `Success: d=165 count=88` |
+| `logs/10_wide.out`    | wide    | `Success: d=165 count=95` |
+| `logs/11_compact.out` | compact | `Success: d=756 count=92` |
+| `logs/12_compact.out` | compact | `Success: d=1384 count=88` |
 
 For larger bit sizes, only the `compact` variant is shown where the simulator reached its performance limits.
