@@ -100,7 +100,7 @@ Example runs on IBM hardware (`ibm_fez`):
 
 | log file | type    | output result |
 |---|---|---|
-| `logs/3_ibm_compact.out` | compact | `Success: d=6 count=24` |
+| `logs/3_ibm_compact.out` | compact | `Success: d=3 count=33` |
 | `logs/3_ibm_wide.out`    | wide    | `Success: d=3 count=34` |
 | `logs/4_ibm_compact.out` | compact | `Success: d=6 count=27` |
 | `logs/4_ibm_wide.out`    | wide    | `Success: d=6 count=26` |
