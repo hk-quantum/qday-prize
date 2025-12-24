@@ -4,7 +4,7 @@
 
 We constructed the following quantum circuit based on the [Proos–Zalka algorithm](https://arxiv.org/abs/quant-ph/0301141) to break ECC cryptography. 
 Given the ECC parameter $G$ and the public key $Q=dG$, we use Shor's algorithm with $aG+bQ$ as the Oracle. 
-For details of the Oracle, see [this report](https://github.com/hk-quantum/qday-prize/blob/v3.0.0/report.pdf).
+For details of the Oracle, see [this report](https://github.com/hk-quantum/qday-prize/blob/v4.0.0/report.pdf).
 
 ```
        ┌───┐                         ░ ┌──────┐┌─┐   
@@ -63,7 +63,7 @@ On a real quantum computer (ibm_torino), due to noise, the result was almost ran
 
 This work implements a general-purpose quantum circuit that works for any ECC parameter, so it requires a relatively large number of quantum gates. 
 For the [ECC Curves and Keys](https://www.qdayprize.org/curves.txt) presented, we implemented both a compact version (which reduces the number of qubits at the cost of deeper circuits) and a wide version (which uses more qubits but shallower circuits).
-For details, see [this report](https://github.com/hk-quantum/qday-prize/blob/v3.0.0/report.pdf).
+For details, see [this report](https://github.com/hk-quantum/qday-prize/blob/v4.0.0/report.pdf).
 
 For example, to break secp256k1 used in Bitcoin, the compact version requires over 120,000 qubits, and the wide version requires nearly 30 million qubits. 
 Therefore, at present, it is considered unlikely that ECC can be broken by quantum computers.

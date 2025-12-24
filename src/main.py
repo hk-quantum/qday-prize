@@ -101,7 +101,7 @@ def main(get_backend: Callable[[QuantumCircuit], Tuple[Any, QuantumCircuit]]):
             wide_mode = True
         elif arg == "compact":
             wide_mode = False
-        else:
+        elif not arg.startswith("-"):
             bit_num = int(arg)
 
     # https://www.qdayprize.org/curves.txt
@@ -138,11 +138,11 @@ def main(get_backend: Callable[[QuantumCircuit], Tuple[Any, QuantumCircuit]]):
     qc <<= g.h(b_qb)
 
     if wide_mode:
-        qc <<= ecc.x_mul_P_add_y_mul_Q_to_zz_v2(
+        qc <<= ecc.x_mul_P_add_y_mul_Q_to_zz_v4_wide(
             a_qb, ecc.G, b_qb, Q, [*x_qb, *y_qb], ancilla
         )
     else:
-        qc <<= ecc.x_mul_P_add_y_mul_Q_to_zz_v3(
+        qc <<= ecc.x_mul_P_add_y_mul_Q_to_zz_v4_compact(
             a_qb, ecc.G, b_qb, Q, [*x_qb, *y_qb], ancilla
         )
 

@@ -18,6 +18,14 @@
     "public_key": [11, 8]
   },
   {
+    "bit_length": 5,
+    "prime": 23,
+    "a": 1,
+    "b": 11,
+    "generator_point": [7, 4],
+    "public_key": [9, 6]
+  },
+  {
     "bit_length": 6,
     "prime": 43,
     "curve_order": 31,

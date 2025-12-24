@@ -50,7 +50,7 @@ def get_backend(circuit: QuantumCircuit) -> Tuple[Sampler, QuantumCircuit]:
     print("Start Transpile", backend.name, backend.status().pending_jobs)
     t_qc = transpile(circuit, backend)
     tm = time.perf_counter() - start_time
-    print(f"End Transpile {tm:.3f}[s] size={t_qc.size()} depth={t_qc.depth()}")
+    print(f"End Transpile {tm:.3f}[s] size={t_qc.size()} depth={t_qc.depth()}, ops={t_qc.count_ops()}")
     return Sampler(mode=backend), t_qc
 
 if __name__ == "__main__":
