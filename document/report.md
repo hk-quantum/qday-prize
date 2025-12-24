@@ -218,7 +218,7 @@ In practice the wide variant would be favorable for hardware execution, but with
 
 As a reference, the table below shows the scale of quantum gate counts after transpilation when running the circuits on real hardware (ibm_fez).
 
-|bits|type|qbits|gates|depth|sx gate|cz gate|rz gate|x gate|
+|bits|type|qbits|gates|depth|sx gates|cz gates|rz gates|x gates|
 |--:|--:|--:|--:|--:|--:|--:|--:|--:|
 |3|compact|47|1,012,397|545,758|536,619|253,993|220,752|1,021|
 |3|wide|76|505,461|270,058|267,887|127,056|109,939|567|

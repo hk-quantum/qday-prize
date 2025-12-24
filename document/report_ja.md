@@ -250,7 +250,7 @@ ECCビット数ごとの量子ビット数(qbits)と量子ゲート数(gates)の
 
 参考として、以下に量子コンピュータの実機（ibm_fez）で実行した際に、トランスパイルされた後の量子ゲート数の規模を示す。
 
-|bits|type|qbits|gates|depth|sx gate|cz gate|rz gate|x gate|
+|bits|type|qbits|gates|depth|sx gates|cz gates|rz gates|x gates|
 |--:|--:|--:|--:|--:|--:|--:|--:|--:|
 |3|compact|47|1,012,397|545,758|536,619|253,993|220,752|1,021|
 |3|wide|76|505,461|270,058|267,887|127,056|109,939|567|
